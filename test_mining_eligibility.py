@@ -32,7 +32,8 @@ def build_stakers(num_stakers, distribution):
 
 def simulate_epoch(stakers, replication):
     # eligibility: vrf < (2 ** 256) * own_power / global_power * rf
-    eligible = [1 for staker in stakers if random.random() < staker * replication]
+    vrf = random.random()
+    eligible = [1 for staker in stakers if vrf < staker * replication]
     return sum(eligible)
 
 def main():
