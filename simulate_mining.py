@@ -118,24 +118,28 @@ def simulate_epoch(logger, epoch, stakers, coin_age, replication):
         logger.info(f"Staker {miner[0]} is selected to propose a block: {miner[1]}")
         return miner[0]
 
-def update_coin_age(logger, num_stakers, coin_age, miner, coin_ageing):
+def update_coin_age_reset(num_stakers, coin_age, miner):
     for staker in range(num_stakers):
         if staker != miner:
-            if coin_ageing == "capped":
-                coin_age[staker] = min(coin_age[staker] + 1, 1920)
-            else:
-                coin_age[staker] += 1
+            coin_age[staker] += 1
         else:
-            if coin_ageing in ("reset", "capped"):
-                coin_age[staker] = 0
-            elif coin_ageing == "halving":
-                coin_age[staker] /= 2
-            else:
-                print("Unknown coin age coin ageing algorithm")
-                sys.exit(1)
+            coin_age[staker] = 0
+    return coin_age
 
-    logger.info(f"Updated coin age: {coin_age}")
+def update_coin_age_halving(num_stakers, coin_age, miner):
+    for staker in range(num_stakers):
+        if staker != miner:
+            coin_age[staker] += 1
+        else:
+            coin_age[staker] = int(coin_age[staker] / 2)
+    return coin_age
 
+def update_coin_age_capped(num_stakers, coin_age, miner):
+    for staker in range(num_stakers):
+        if staker != miner:
+            coin_age[staker] = min(coin_age[staker] + 1, 1920)
+        else:
+            coin_age[staker] = 0
     return coin_age
 
 def print_mining_stats(logger, stakers, mined_blocks, epochs):
@@ -187,16 +191,22 @@ def main():
     coin_age = {staker: 1 for staker in range(options.num_stakers)}
     logger.info(f"Initial coin age: {coin_age}")
 
-    previous_miner = -1
     mined_blocks = {}
     for epoch in tqdm.tqdm(range(options.epochs)):
         miner = simulate_epoch(logger, epoch, stakers, coin_age, options.replication)
-        if miner != -1 and options.coin_ageing != "halving":
-            assert miner != previous_miner, "No miner should be able to mine two subsequent blocks"
-        previous_miner = miner
 
-        if options.coin_ageing != "disabled":
-            coin_age = update_coin_age(logger, options.num_stakers, coin_age, miner, options.coin_ageing)
+        if options.coin_ageing == "disabled":
+            pass
+        elif options.coin_ageing == "reset":
+            coin_age = update_coin_age_reset(options.num_stakers, coin_age, miner)
+        elif options.coin_ageing == "halving":
+            coin_age = update_coin_age_halving(options.num_stakers, coin_age, miner)
+        elif options.coin_ageing == "capped":
+            coin_age = update_coin_age_capped(options.num_stakers, coin_age, miner)
+        else:
+            print("Unknown coin ageing strategy")
+            sys.exit(1)
+        logger.info(f"Updated coin age: {coin_age}")
 
         if miner not in mined_blocks:
             mined_blocks[miner] = 0
