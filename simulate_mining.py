@@ -86,21 +86,21 @@ def plot_stakers(stakers, num_stakers, total_staked, distribution, coin_ageing, 
     plt.title(f"Stakers = {num_stakers}, total staked = {int(total_staked / 1E6)}M, distribution = {distribution}, ageing = {coin_ageing}")
     plt.savefig(f"plots/stakers_{timestamp}.png", bbox_inches="tight")
 
-def simulate_epoch(logger, epoch, stakers, coin_age, replication):
+def simulate_epoch_vrf_stake(logger, epoch, stakers, coin_age, replication):
     logger.info(f"Simulating epoch {epoch + 1}")
     # eligibility: vrf < (2 ** 256) * own_power / global_power * rf
 
     # Calculate global power
     total_staked = sum(stakers.values())
     global_average_age = int(sum(coin_age.values()) / len(coin_age))
-    global_power = min(total_staked * global_average_age, 184_467_440_737_095_551_615)
+    global_power = min(total_staked * global_average_age, 18_446_744_073_709_551_615)
 
     proposals = []
     vrf = random.random()
     logger.info(f"VRF target: {vrf}")
     for staker, stake in stakers.items():
         # Calculate power of the staker
-        own_power = min(stake * coin_age[staker], 1_475_739_525_896_764_412)
+        own_power = min(stake * coin_age[staker], 147_573_952_589_676_416)
         eligibility = own_power / global_power * replication
         if eligibility > 1.0:
             logger.warning(f"Eligibility for staker {staker} exceeds 1.0: {eligibility}")
@@ -117,6 +117,32 @@ def simulate_epoch(logger, epoch, stakers, coin_age, replication):
         miner = min(proposals, key=lambda l: l[1])
         logger.info(f"Staker {miner[0]} is selected to propose a block: {miner[1]}")
         return miner[0]
+
+def simulate_epoch_modulo_stake(logger, epoch, stakers, coin_age):
+    logger.info(f"Simulating epoch {epoch + 1}")
+    # eligibility: vrf % global_power == ordered_power_staker_x
+
+    # Calculate global power
+    global_power = sum(stake * coin_age[staker] for staker, stake in stakers.items())
+
+    # equivalent to vrf (previous block hash + epoch) % global_power
+    vrf = random.randint(0, global_power)
+    logger.info(f"VRF target: {vrf}")
+
+    cumulative_power, selected_staker = 0, -1
+    for staker, stake in stakers.items():
+        # Calculate power of the staker
+        own_power = stake * coin_age[staker]
+        if vrf >= cumulative_power and vrf < cumulative_power + own_power:
+            logger.info(f"Staker {staker} is eligible to propose a block: {cumulative_power} <= {vrf} < {cumulative_power + own_power}")
+            selected_staker = staker
+        cumulative_power += own_power
+
+    assert global_power == cumulative_power, f"{global_power} != {cumulative_power}"
+
+    if selected_staker == -1:
+        logger.warning("No blocks proposed")
+    return selected_staker
 
 def update_coin_age_reset(num_stakers, coin_age, miner):
     for staker in range(num_stakers):
@@ -174,6 +200,7 @@ def main():
     parser.add_option("--epochs", type="int", default=100000, dest="epochs")
     parser.add_option("--replication", type="int", default=16, dest="replication")
     parser.add_option("--coin-ageing", type="string", default="reset", dest="coin_ageing")
+    parser.add_option("--mining-eligibility", type="string", default="vrf-stake", dest="mining_eligibility")
     parser.add_option("--logging", type="string", default="info", dest="logging")
     options, args = parser.parse_args()
 
@@ -193,7 +220,13 @@ def main():
 
     mined_blocks = {}
     for epoch in tqdm.tqdm(range(options.epochs)):
-        miner = simulate_epoch(logger, epoch, stakers, coin_age, options.replication)
+        if options.mining_eligibility == "vrf-stake":
+            miner = simulate_epoch_vrf_stake(logger, epoch, stakers, coin_age, options.replication)
+        elif options.mining_eligibility == "modulo-stake":
+            miner = simulate_epoch_modulo_stake(logger, epoch, stakers, coin_age)
+        else:
+            print("Unknown mining eligibility strategy")
+            sys.exit(1)
 
         if options.coin_ageing == "disabled":
             pass

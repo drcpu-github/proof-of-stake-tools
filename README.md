@@ -42,6 +42,10 @@ Options:
     - explanation: allows to experiment with different coin age strategies
     - default: reset
     - allowed values: reset, capped, halving
+- --mining-eligibility
+    - explanation: allows setting different strategies for miner selection
+    - default: vrf-stake
+    - allowed values: vrf-stake, module-stake
 - --logging
     - explanation: set the logging level
     - default: info
