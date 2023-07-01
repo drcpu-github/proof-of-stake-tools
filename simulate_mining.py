@@ -219,6 +219,7 @@ def main():
     logger.info(f"Initial coin age: {coin_age}")
 
     mined_blocks = {}
+    no_blocks_proposed = 0
     for epoch in tqdm.tqdm(range(options.epochs)):
         if options.mining_eligibility == "vrf-stake":
             miner = simulate_epoch_vrf_stake(logger, epoch, stakers, coin_age, options.replication)
@@ -227,6 +228,9 @@ def main():
         else:
             print("Unknown mining eligibility strategy")
             sys.exit(1)
+
+        if miner == -1:
+            no_blocks_proposed += 1
 
         if options.coin_ageing == "disabled":
             pass
@@ -246,6 +250,9 @@ def main():
         mined_blocks[miner] += 1
 
     print_mining_stats(logger, stakers, mined_blocks, options.epochs)
+    if no_blocks_proposed > options.epochs * 0.01:
+        no_proposal_percentage = no_blocks_proposed / options.epochs * 100
+        print(f"WARNING: no blocks proposed for {no_blocks_proposed} epochs ({no_proposal_percentage:.2f}% of total)")
 
     plot_mining_rate(stakers, mined_blocks, options.epochs, options.num_stakers, options.total_staked, options.distribution, options.coin_ageing, timestamp)
 
