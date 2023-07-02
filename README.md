@@ -46,6 +46,9 @@ Options:
     - explanation: allows setting different strategies for miner selection
     - default: vrf-stake
     - allowed values: vrf-stake, module-stake
+- --block-reward
+    - explanation: set the block reward for an accepted block
+    - default: 250
 - --logging
     - explanation: set the logging level
     - default: info

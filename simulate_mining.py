@@ -199,6 +199,7 @@ def main():
     parser.add_option("--replication", type="int", default=16, dest="replication")
     parser.add_option("--coin-ageing", type="string", default="reset", dest="coin_ageing")
     parser.add_option("--mining-eligibility", type="string", default="vrf-stake", dest="mining_eligibility")
+    parser.add_option("--block-reward", type="int", default=250, dest="block_reward")
     parser.add_option("--logging", type="string", default="info", dest="logging")
     options, args = parser.parse_args()
 
@@ -226,6 +227,8 @@ def main():
         else:
             print("Unknown mining eligibility strategy")
             sys.exit(1)
+
+        stakers[miner] += options.block_reward
 
         if miner == -1:
             no_blocks_proposed += 1
