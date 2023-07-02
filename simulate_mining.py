@@ -96,18 +96,16 @@ def simulate_epoch_vrf_stake(logger, epoch, stakers, coin_age, replication):
     global_power = min(total_staked * global_average_age, 18_446_744_073_709_551_615)
 
     proposals = []
-    vrf = random.random()
-    logger.info(f"VRF target: {vrf}")
     for staker, stake in stakers.items():
         # Calculate power of the staker
         own_power = min(stake * coin_age[staker], 147_573_952_589_676_416)
         eligibility = own_power / global_power * replication
         if eligibility > 1.0:
             logger.warning(f"Eligibility for staker {staker} exceeds 1.0: {eligibility}")
+        vrf = random.random()
         if vrf < eligibility:
-            block_hash = random.random()
-            logger.info(f"Staker {staker} is eligible to propose a block: {vrf} < {eligibility}, {block_hash}")
-            proposals.append((staker, block_hash))
+            logger.info(f"Staker {staker} is eligible to propose a block: {vrf} < {eligibility}")
+            proposals.append((staker, vrf))
 
     if len(proposals) == 0:
         logger.warning(f"No blocks proposed")
