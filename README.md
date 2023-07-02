@@ -45,7 +45,7 @@ Options:
 - --mining-eligibility
     - explanation: allows setting different strategies for miner selection
     - default: vrf-stake
-    - allowed values: vrf-stake, module-stake
+    - allowed values: vrf-stake, module-stake, modulo-slot
 - --block-reward
     - explanation: set the block reward for an accepted block
     - default: 250

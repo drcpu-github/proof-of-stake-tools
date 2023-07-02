@@ -142,6 +142,42 @@ def simulate_epoch_modulo_stake(logger, epoch, stakers, coin_age):
         logger.warning("No blocks proposed")
     return selected_staker
 
+def simulate_epoch_modulo_slot(logger, epoch, stakers, coin_age, replication):
+    logger.info(f"Simulating epoch {epoch + 1}")
+    # eligibility: vrf % (global_power / replication) == ordered_power_staker_x
+
+    # Calculate global power
+    global_power = sum(stake * coin_age[staker] for staker, stake in stakers.items())
+
+    # equivalent to (previous block hash + epoch) % (global_power / replication)
+    global_power_slot_size = int(global_power / replication)
+    vrf = random.randint(0, global_power_slot_size - 1)
+    logger.info(f"VRF target: {vrf}")
+
+    proposals = []
+    cumulative_power, staker = 0, 0
+    while cumulative_power < global_power:
+        staker_power = stakers[staker] * coin_age[staker]
+
+        start_slot = int(cumulative_power / global_power_slot_size)
+        end_slot = int((cumulative_power + staker_power) / global_power_slot_size)
+        for s in range(start_slot, end_slot + 1):
+            power_lower_bound = max(s * global_power_slot_size, cumulative_power) % global_power_slot_size
+            power_upper_bound = min(cumulative_power + staker_power, (s + 1) * global_power_slot_size - 1) % global_power_slot_size
+            if vrf >= power_lower_bound and vrf < power_upper_bound:
+                logger.info(f"Staker {staker} is eligible to propose a block: {power_lower_bound} <= {vrf} < {power_upper_bound} (slot {s})")
+                proposals.append((staker, random.random()))
+
+        cumulative_power += staker_power
+        staker += 1
+
+    assert len(proposals) == replication
+
+    # Miner with the lowest block hash value is picked as the winner
+    miner = min(proposals, key=lambda l: l[1])
+    logger.info(f"Staker {miner[0]} is selected to propose a block: {miner[1]}")
+    return miner[0]
+
 def update_coin_age_reset(num_stakers, coin_age, miner):
     for staker in range(num_stakers):
         if staker != miner:
@@ -224,6 +260,8 @@ def main():
             miner = simulate_epoch_vrf_stake(logger, epoch, stakers, coin_age, options.replication)
         elif options.mining_eligibility == "modulo-stake":
             miner = simulate_epoch_modulo_stake(logger, epoch, stakers, coin_age)
+        elif options.mining_eligibility == "modulo-slot":
+            miner = simulate_epoch_modulo_slot(logger, epoch, stakers, coin_age, options.replication)
         else:
             print("Unknown mining eligibility strategy")
             sys.exit(1)
