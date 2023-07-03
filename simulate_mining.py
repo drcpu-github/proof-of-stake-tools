@@ -10,6 +10,7 @@ import time
 import tqdm
 
 import matplotlib.pyplot as plt
+from matplotlib.ticker import PercentFormatter
 
 def select_logging_level(level):
     if level.lower() == "debug":
@@ -51,7 +52,15 @@ def configure_logger(log_filename, timestamp, log_level):
 
     return logger
 
-def build_stakers(logger, num_stakers, whales, whales_stake, total_staked, distribution, coin_ageing, timestamp):
+def build_stakers(logger, options, timestamp):
+    num_stakers = options.num_stakers
+    whales = options.whales
+    whales_stake = options.whales_stake
+    total_staked = options.total_staked
+    distribution = options.distribution
+    coin_ageing = options.coin_ageing
+    mining_eligibility = options.mining_eligibility
+
     if distribution == "random":
         stakers = [random.random() for s in range(num_stakers)]
     elif distribution == "uniform":
@@ -74,16 +83,16 @@ def build_stakers(logger, num_stakers, whales, whales_stake, total_staked, distr
 
     logger.info(f"Stakers: {stakers}")
 
-    plot_stakers(stakers, num_stakers, total_staked, distribution, coin_ageing, timestamp)
+    plot_stakers(stakers, num_stakers, total_staked, distribution, coin_ageing, mining_eligibility, timestamp)
 
     return stakers
 
-def plot_stakers(stakers, num_stakers, total_staked, distribution, coin_ageing, timestamp):
+def plot_stakers(stakers, num_stakers, total_staked, distribution, coin_ageing, mining_eligibility, timestamp):
     fig, ax = plt.subplots(1, 1)
     ax.hist([stake / 1E6 for stake in stakers.values()], bins=32)
     ax.set_xlabel("Staked (M)")
     ax.set_ylabel("Number of stakers")
-    plt.title(f"Stakers = {num_stakers}, total staked = {int(total_staked / 1E6)}M, distribution = {distribution}, ageing = {coin_ageing}")
+    plt.title(f"Stakers = {num_stakers}, total staked = {int(total_staked / 1E6)}M, distribution = {distribution}, ageing = {coin_ageing}, mining = {mining_eligibility}")
     plt.savefig(f"plots/stakers_{timestamp}.png", bbox_inches="tight")
 
 def simulate_epoch_vrf_stake(logger, epoch, stakers, coin_age, replication):
@@ -109,12 +118,12 @@ def simulate_epoch_vrf_stake(logger, epoch, stakers, coin_age, replication):
 
     if len(proposals) == 0:
         logger.warning(f"No blocks proposed")
-        return -1
+        return -1, 0
     else:
         # Miner with the lowest VRF value is picked as the winner
         miner = min(proposals, key=lambda l: l[1])
         logger.info(f"Staker {miner[0]} is selected to propose a block: {miner[1]}")
-        return miner[0]
+        return miner[0], len(proposals)
 
 def simulate_epoch_modulo_stake(logger, epoch, stakers, coin_age):
     logger.info(f"Simulating epoch {epoch + 1}")
@@ -133,6 +142,7 @@ def simulate_epoch_modulo_stake(logger, epoch, stakers, coin_age):
         own_power = stake * coin_age[staker]
         if vrf >= cumulative_power and vrf < cumulative_power + own_power:
             logger.info(f"Staker {staker} is eligible to propose a block: {cumulative_power} <= {vrf} < {cumulative_power + own_power}")
+            assert selected_staker == -1
             selected_staker = staker
         cumulative_power += own_power
 
@@ -140,7 +150,7 @@ def simulate_epoch_modulo_stake(logger, epoch, stakers, coin_age):
 
     if selected_staker == -1:
         logger.warning("No blocks proposed")
-    return selected_staker
+    return selected_staker, 1 if selected_staker > -1 else 0
 
 def simulate_epoch_modulo_slot(logger, epoch, stakers, coin_age, replication):
     logger.info(f"Simulating epoch {epoch + 1}")
@@ -176,7 +186,7 @@ def simulate_epoch_modulo_slot(logger, epoch, stakers, coin_age, replication):
     # Miner with the lowest block hash value is picked as the winner
     miner = min(proposals, key=lambda l: l[1])
     logger.info(f"Staker {miner[0]} is selected to propose a block: {miner[1]}")
-    return miner[0]
+    return miner[0], len(proposals)
 
 def update_coin_age_reset(num_stakers, coin_age, miner):
     for staker in range(num_stakers):
@@ -210,7 +220,7 @@ def print_mining_stats(logger, stakers, mined_blocks, epochs):
         stake_percentage = stake / sum(stakers.values()) * 100
         logger.info(f"{staker}: {blocks} ({block_percentage:.2f}%) -- {stake / 1E6:.2f}M ({stake_percentage:.2f}%)")
 
-def plot_mining_rate(stakers, mined_blocks, epochs, num_stakers, total_staked, distribution, coin_ageing, timestamp):
+def plot_mining_rate(stakers, mined_blocks, epochs, plot_title, timestamp):
     block_percentages, stake_percentages = [], []
     for staker, stake in sorted(stakers.items(), key=lambda l: l[1], reverse=True):
         blocks = mined_blocks[staker] if staker in mined_blocks else 0
@@ -221,8 +231,22 @@ def plot_mining_rate(stakers, mined_blocks, epochs, num_stakers, total_staked, d
     ax.scatter(stake_percentages, block_percentages)
     ax.set_xlabel("Staked (%)")
     ax.set_ylabel("Blocks mined (%)")
-    plt.title(f"Stakers = {num_stakers}, total staked = {int(total_staked / 1E6)}M, distribution = {distribution}, ageing = {coin_ageing}")
+    plt.title(plot_title)
     plt.savefig(f"plots/mining_{timestamp}.png", bbox_inches="tight")
+
+def plot_num_blocks_proposed(num_blocks_proposed, plot_title, timestamp):
+    x_values, y_values = [], []
+    for x, y in num_blocks_proposed.items():
+        x_values.append(x)
+        y_values.append(y / sum(num_blocks_proposed.values()))
+
+    fig, ax = plt.subplots(1, 1)
+    fig.set_size_inches(max(10, 0.5 * len(x_values)), 8)
+    ax.bar(x_values, y_values)
+    ax.xaxis.set_ticks(range(min(x_values), max(x_values) + 1))
+    ax.yaxis.set_major_formatter(PercentFormatter(1))
+    plt.title(plot_title)
+    plt.savefig(f"plots/blocks_{timestamp}.png", bbox_inches="tight")
 
 def main():
     parser = optparse.OptionParser()
@@ -248,28 +272,38 @@ def main():
 
     logger.info(f"Command line arguments: {options}")
 
-    stakers = build_stakers(logger, options.num_stakers, options.whales, options.whales_stake, options.total_staked, options.distribution, options.coin_ageing, timestamp)
+    stakers = build_stakers(logger, options, timestamp)
     # Everyone starts off with coin age equal to 1, otherwise no block will be mined in the first epoch
     coin_age = {staker: 1 for staker in range(options.num_stakers)}
     logger.info(f"Initial coin age: {coin_age}")
 
     mined_blocks = {}
     no_blocks_proposed = 0
+    num_blocks_proposed = {}
     for epoch in tqdm.tqdm(range(options.epochs)):
         if options.mining_eligibility == "vrf-stake":
-            miner = simulate_epoch_vrf_stake(logger, epoch, stakers, coin_age, options.replication)
+            miner, num_proposals = simulate_epoch_vrf_stake(logger, epoch, stakers, coin_age, options.replication)
         elif options.mining_eligibility == "modulo-stake":
-            miner = simulate_epoch_modulo_stake(logger, epoch, stakers, coin_age)
+            miner, num_proposals = simulate_epoch_modulo_stake(logger, epoch, stakers, coin_age)
         elif options.mining_eligibility == "modulo-slot":
-            miner = simulate_epoch_modulo_slot(logger, epoch, stakers, coin_age, options.replication)
+            miner, num_proposals = simulate_epoch_modulo_slot(logger, epoch, stakers, coin_age, options.replication)
         else:
             print("Unknown mining eligibility strategy")
             sys.exit(1)
 
-        stakers[miner] += options.block_reward
+        if miner != -1:
+            stakers[miner] += options.block_reward
 
         if miner == -1:
             no_blocks_proposed += 1
+
+        if miner not in mined_blocks:
+            mined_blocks[miner] = 0
+        mined_blocks[miner] += 1
+
+        if num_proposals not in num_blocks_proposed:
+            num_blocks_proposed[num_proposals] = 0
+        num_blocks_proposed[num_proposals] += 1
 
         if options.coin_ageing == "disabled":
             pass
@@ -284,16 +318,14 @@ def main():
             sys.exit(1)
         logger.info(f"Updated coin age: {coin_age}")
 
-        if miner not in mined_blocks:
-            mined_blocks[miner] = 0
-        mined_blocks[miner] += 1
-
     print_mining_stats(logger, stakers, mined_blocks, options.epochs)
     if no_blocks_proposed > options.epochs * 0.01:
         no_proposal_percentage = no_blocks_proposed / options.epochs * 100
         print(f"WARNING: no blocks proposed for {no_blocks_proposed} epochs ({no_proposal_percentage:.2f}% of total)")
 
-    plot_mining_rate(stakers, mined_blocks, options.epochs, options.num_stakers, options.total_staked, options.distribution, options.coin_ageing, timestamp)
+    plot_title = f"Stakers = {options.num_stakers}, total staked = {int(options.total_staked / 1E6)}M, distribution = {options.distribution}, ageing = {options.coin_ageing}, mining = {options.mining_eligibility}"
+    plot_mining_rate(stakers, mined_blocks, options.epochs, plot_title, timestamp)
+    plot_num_blocks_proposed(num_blocks_proposed, plot_title, timestamp)
 
 if __name__ == "__main__":
     main()
