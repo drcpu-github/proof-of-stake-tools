@@ -118,12 +118,12 @@ def simulate_epoch_vrf_stake(logger, epoch, stakers, coin_age, replication):
 
     if len(proposals) == 0:
         logger.warning(f"No blocks proposed")
-        return -1, 0
+        return -1, []
     else:
         # Miner with the lowest VRF value is picked as the winner
         miner = min(proposals, key=lambda l: l[1])
         logger.info(f"Staker {miner[0]} is selected to propose a block: {miner[1]}")
-        return miner[0], len(proposals)
+        return miner[0], proposals
 
 def simulate_epoch_modulo_stake(logger, epoch, stakers, coin_age):
     logger.info(f"Simulating epoch {epoch + 1}")
@@ -280,9 +280,15 @@ def main():
     mined_blocks = {}
     no_blocks_proposed = 0
     num_blocks_proposed = {}
+    staker_block_proposed = {}
     for epoch in tqdm.tqdm(range(options.epochs)):
         if options.mining_eligibility == "vrf-stake":
-            miner, num_proposals = simulate_epoch_vrf_stake(logger, epoch, stakers, coin_age, options.replication)
+            miner, proposals = simulate_epoch_vrf_stake(logger, epoch, stakers, coin_age, options.replication)
+            for proposer, vrf in proposals:
+                if proposer not in staker_block_proposed:
+                    staker_block_proposed[proposer] = 0
+                staker_block_proposed[proposer] += 1
+            num_proposals = len(proposals)
         elif options.mining_eligibility == "modulo-stake":
             miner, num_proposals = simulate_epoch_modulo_stake(logger, epoch, stakers, coin_age)
         elif options.mining_eligibility == "modulo-slot":
@@ -326,6 +332,10 @@ def main():
     plot_title = f"Stakers = {options.num_stakers}, total staked = {int(options.total_staked / 1E6)}M, distribution = {options.distribution}, ageing = {options.coin_ageing}, mining = {options.mining_eligibility}"
     plot_mining_rate(stakers, mined_blocks, options.epochs, plot_title, timestamp)
     plot_num_blocks_proposed(num_blocks_proposed, plot_title, timestamp)
+
+    if options.mining_eligibility == "vrf-stake":
+        for staker, num_proposed in staker_block_proposed.items():
+            logger.info(f"Staker {staker} proposed {num_proposed} blocks")
 
 if __name__ == "__main__":
     main()
