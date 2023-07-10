@@ -34,7 +34,7 @@ def configure_logger(log_filename, timestamp, log_level):
     dirname = os.path.dirname(log_filename)
     filename, extension = os.path.splitext(os.path.basename(log_filename))
     # Add timestamp in log filename
-    log_filename = os.path.join(dirname, f"{filename}.{timestamp}{extension}")
+    log_filename = os.path.join(dirname, f"logs/{filename}.{timestamp}{extension}")
     # Setup file handler logging
     file_handler = logging.FileHandler(log_filename)
 
@@ -265,6 +265,8 @@ def main():
 
     if not os.path.exists("plots"):
         os.mkdir("plots")
+    if not os.path.exists("logs"):
+        os.mkdir("logs")
 
     timestamp = datetime.datetime.now().strftime("%Y%m%d%H%M%S")
 
