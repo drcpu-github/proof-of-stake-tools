@@ -191,7 +191,7 @@ def simulate_epoch_modulo_slot(logger, epoch, stakers, coin_age, replication):
 def update_coin_age_reset(num_stakers, coin_age, miner):
     for staker in range(num_stakers):
         if staker != miner:
-            coin_age[staker] += 1
+            coin_age[staker] = min(coin_age[staker] + 1, 53760)
         else:
             coin_age[staker] = 0
     return coin_age
