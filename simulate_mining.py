@@ -140,21 +140,21 @@ def simulate_epoch_vrf_stake(logger, epoch, stakers, coin_age, replication, repl
 
 def simulate_epoch_modulo_stake(logger, epoch, stakers, coin_age):
     logger.info(f"Simulating epoch {epoch + 1}")
-    # eligibility: vrf % global_power == ordered_power_staker_x
+    # eligibility: random_value % global_power == ordered_power_staker_x
 
     # Calculate global power
     global_power = sum(stake * coin_age[staker] for staker, stake in stakers.items())
 
-    # equivalent to vrf (previous block hash + epoch) % global_power
-    vrf = random.randint(0, global_power)
-    logger.info(f"VRF target: {vrf}")
+    # equivalent to (previous block hash + epoch) % global_power
+    random_slot = random.randint(0, global_power)
+    logger.info(f"Random slot: {random_slot}")
 
     cumulative_power, selected_staker = 0, -1
     for staker, stake in stakers.items():
         # Calculate power of the staker
         own_power = stake * coin_age[staker]
-        if vrf >= cumulative_power and vrf < cumulative_power + own_power:
-            logger.info(f"Staker {staker} is eligible to propose a block: {cumulative_power} <= {vrf} < {cumulative_power + own_power}")
+        if random_slot >= cumulative_power and random_slot < cumulative_power + own_power:
+            logger.info(f"Staker {staker} is eligible to propose a block: {cumulative_power} <= {random_slot} < {cumulative_power + own_power}")
             assert selected_staker == -1
             selected_staker = staker
         cumulative_power += own_power
@@ -167,15 +167,15 @@ def simulate_epoch_modulo_stake(logger, epoch, stakers, coin_age):
 
 def simulate_epoch_modulo_slot(logger, epoch, stakers, coin_age, replication, replication_selector):
     logger.info(f"Simulating epoch {epoch + 1}")
-    # eligibility: vrf % (global_power / replication) == ordered_power_staker_x
+    # eligibility: random_value % (global_power / replication) == ordered_power_staker_x
 
     # Calculate global power
     global_power = sum(stake * coin_age[staker] for staker, stake in stakers.items())
 
     # equivalent to (previous block hash + epoch) % (global_power / replication)
     global_power_slot_size = int(global_power / replication)
-    vrf = random.randint(0, global_power_slot_size - 1)
-    logger.info(f"VRF target: {vrf}")
+    random_slot = random.randint(0, global_power_slot_size - 1)
+    logger.info(f"Random slot: {random_slot}")
 
     proposals = []
     cumulative_power, staker = 0, 0
@@ -187,8 +187,8 @@ def simulate_epoch_modulo_slot(logger, epoch, stakers, coin_age, replication, re
         for s in range(start_slot, end_slot + 1):
             power_lower_bound = max(s * global_power_slot_size, cumulative_power) % global_power_slot_size
             power_upper_bound = min(cumulative_power + staker_power, (s + 1) * global_power_slot_size - 1) % global_power_slot_size
-            if vrf >= power_lower_bound and vrf < power_upper_bound:
-                logger.info(f"Staker {staker} is eligible to propose a block: {power_lower_bound} <= {vrf} < {power_upper_bound} (slot {s})")
+            if random_slot >= power_lower_bound and random_slot < power_upper_bound:
+                logger.info(f"Staker {staker} is eligible to propose a block: {power_lower_bound} <= {random_slot} < {power_upper_bound} (slot {s})")
                 # Miner with the lowest block hash value will be picked as the winner
                 if replication_selector == "lowest-hash":
                     proposals.append((staker, random.random()))
