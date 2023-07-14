@@ -95,7 +95,7 @@ def plot_stakers(stakers, num_stakers, total_staked, distribution, coin_ageing, 
     plt.title(f"Stakers = {num_stakers}, total staked = {int(total_staked / 1E6)}M, distribution = {distribution}, ageing = {coin_ageing}, mining = {mining_eligibility}")
     plt.savefig(f"plots/stakers_{timestamp}.png", bbox_inches="tight")
 
-def simulate_epoch_vrf_stake(logger, epoch, stakers, coin_age, replication):
+def simulate_epoch_vrf_stake(logger, epoch, stakers, coin_age, replication, replication_selector):
     logger.info(f"Simulating epoch {epoch + 1}")
     # eligibility: vrf < (2 ** 256) * own_power / global_power * rf
 
@@ -114,14 +114,27 @@ def simulate_epoch_vrf_stake(logger, epoch, stakers, coin_age, replication):
         vrf = random.random()
         if vrf < eligibility:
             logger.info(f"Staker {staker} is eligible to propose a block: {vrf} < {eligibility}")
-            proposals.append((staker, vrf))
+            # Miner with the lowest VRF value will be picked as the winner
+            if replication_selector == "lowest-hash":
+                proposals.append((staker, vrf))
+            # Miner with the highest power will be picked as the winner
+            elif replication_selector == "highest-power":
+                proposals.append((staker, own_power))
+            else:
+                print("Unknown replication selector")
+                sys.exit(1)
 
     if len(proposals) == 0:
         logger.warning(f"No blocks proposed")
         return -1, []
     else:
-        # Miner with the lowest VRF value is picked as the winner
-        miner = min(proposals, key=lambda l: l[1])
+        if replication_selector == "lowest-hash":
+            miner = min(proposals, key=lambda l: l[1])
+        elif replication_selector == "highest-power":
+            miner = max(proposals, key=lambda l: l[1])
+        else:
+            print("Unknown replication selector")
+            sys.exit(1)
         logger.info(f"Staker {miner[0]} is selected to propose a block: {miner[1]}")
         return miner[0], proposals
 
@@ -152,7 +165,7 @@ def simulate_epoch_modulo_stake(logger, epoch, stakers, coin_age):
         logger.warning("No blocks proposed")
     return selected_staker, 1 if selected_staker > -1 else 0
 
-def simulate_epoch_modulo_slot(logger, epoch, stakers, coin_age, replication):
+def simulate_epoch_modulo_slot(logger, epoch, stakers, coin_age, replication, replication_selector):
     logger.info(f"Simulating epoch {epoch + 1}")
     # eligibility: vrf % (global_power / replication) == ordered_power_staker_x
 
@@ -176,15 +189,28 @@ def simulate_epoch_modulo_slot(logger, epoch, stakers, coin_age, replication):
             power_upper_bound = min(cumulative_power + staker_power, (s + 1) * global_power_slot_size - 1) % global_power_slot_size
             if vrf >= power_lower_bound and vrf < power_upper_bound:
                 logger.info(f"Staker {staker} is eligible to propose a block: {power_lower_bound} <= {vrf} < {power_upper_bound} (slot {s})")
-                proposals.append((staker, random.random()))
+                # Miner with the lowest block hash value will be picked as the winner
+                if replication_selector == "lowest-hash":
+                    proposals.append((staker, random.random()))
+                # Miner with the highest power will be picked as the winner
+                elif replication_selector == "highest-power":
+                    proposals.append((staker, staker_power))
+                else:
+                    print("Unknown replication selector")
+                    sys.exit(1)
 
         cumulative_power += staker_power
         staker += 1
 
     assert len(proposals) == replication
 
-    # Miner with the lowest block hash value is picked as the winner
-    miner = min(proposals, key=lambda l: l[1])
+    if replication_selector == "lowest-hash":
+        miner = min(proposals, key=lambda l: l[1])
+    elif replication_selector == "highest-power":
+        miner = max(proposals, key=lambda l: l[1])
+    else:
+        print("Unknown replication selector")
+        sys.exit(1)
     logger.info(f"Staker {miner[0]} is selected to propose a block: {miner[1]}")
     return miner[0], len(proposals)
 
@@ -259,6 +285,7 @@ def main():
     parser.add_option("--replication", type="int", default=16, dest="replication")
     parser.add_option("--coin-ageing", type="string", default="reset", dest="coin_ageing")
     parser.add_option("--mining-eligibility", type="string", default="vrf-stake", dest="mining_eligibility")
+    parser.add_option("--replication-selector", type="string", default="lowest-hash", dest="replication_selector")
     parser.add_option("--block-reward", type="int", default=250, dest="block_reward")
     parser.add_option("--logging", type="string", default="info", dest="logging")
     options, args = parser.parse_args()
@@ -285,7 +312,7 @@ def main():
     staker_block_proposed = {}
     for epoch in tqdm.tqdm(range(options.epochs)):
         if options.mining_eligibility == "vrf-stake":
-            miner, proposals = simulate_epoch_vrf_stake(logger, epoch, stakers, coin_age, options.replication)
+            miner, proposals = simulate_epoch_vrf_stake(logger, epoch, stakers, coin_age, options.replication, options.replication_selector)
             for proposer, vrf in proposals:
                 if proposer not in staker_block_proposed:
                     staker_block_proposed[proposer] = 0
@@ -294,7 +321,7 @@ def main():
         elif options.mining_eligibility == "modulo-stake":
             miner, num_proposals = simulate_epoch_modulo_stake(logger, epoch, stakers, coin_age)
         elif options.mining_eligibility == "modulo-slot":
-            miner, num_proposals = simulate_epoch_modulo_slot(logger, epoch, stakers, coin_age, options.replication)
+            miner, num_proposals = simulate_epoch_modulo_slot(logger, epoch, stakers, coin_age, options.replication, options.replication_selector)
         else:
             print("Unknown mining eligibility strategy")
             sys.exit(1)

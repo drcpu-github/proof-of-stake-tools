@@ -46,6 +46,10 @@ Options:
     - explanation: allows setting different strategies for miner selection
     - default: vrf-stake
     - allowed values: vrf-stake, module-stake, modulo-slot
+- --replication-selector
+    - explanation: sets a selection strategy when replication is enabled (vrf-stake and modulo-slot)
+    - default: lowest-hash
+    - allowed values: lowest-hash, highest-power
 - --block-reward
     - explanation: set the block reward for an accepted block
     - default: 250
