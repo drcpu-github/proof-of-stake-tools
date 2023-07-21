@@ -314,6 +314,7 @@ def main():
     no_blocks_proposed = 0
     num_blocks_proposed = {}
     staker_block_proposed = {}
+    first_block_epoch = {staker: 0 for staker in range(num_stakers)}
     for epoch in tqdm.tqdm(range(options.epochs)):
         if options.mining_eligibility == "vrf-stake":
             miner, proposals = simulate_epoch_vrf_stake(logger, epoch, stakers, coin_age, options.replication, options.replication_selector)
@@ -335,10 +336,13 @@ def main():
 
         if miner == -1:
             no_blocks_proposed += 1
+        else:
+            if miner not in mined_blocks:
+                mined_blocks[miner] = 0
+            mined_blocks[miner] += 1
 
-        if miner not in mined_blocks:
-            mined_blocks[miner] = 0
-        mined_blocks[miner] += 1
+            if first_block_epoch[miner] == 0:
+                first_block_epoch[miner] = epoch
 
         if num_proposals not in num_blocks_proposed:
             num_blocks_proposed[num_proposals] = 0
