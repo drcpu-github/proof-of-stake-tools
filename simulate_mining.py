@@ -84,14 +84,6 @@ def build_stakers(logger, options, timestamp):
     
     return stakers
 
-def plot_stakers(stakers, num_stakers, total_staked, distribution, coin_ageing, mining_eligibility, timestamp):
-    fig, ax = plt.subplots(1, 1)
-    ax.hist([stake / 1E6 for stake in stakers.values()], bins=32)
-    ax.set_xlabel("Staked (M)")
-    ax.set_ylabel("Number of stakers")
-    plt.title(f"Stakers = {num_stakers}, total staked = {int(total_staked / 1E6)}M, distribution = {distribution}, ageing = {coin_ageing}, mining = {mining_eligibility}")
-    plt.savefig(f"plots/stakers_{timestamp}.png", bbox_inches="tight")
-
 def simulate_epoch_vrf_stake(logger, epoch, stakers, coin_age, replication, replication_selector):
     logger.info(f"Simulating epoch {epoch + 1}")
     # eligibility: vrf < (2 ** 256) * own_power / global_power * rf
@@ -299,11 +291,20 @@ def print_mining_stats(logger, stakers, mined_blocks, epochs):
         stake_percentage = stake / sum(stakers.values()) * 100
         logger.info(f"{staker}: {blocks} ({block_percentage:.2f}%) -- {stake / 1E6:.2f}M ({stake_percentage:.2f}%)")
 
-def plot_mining_rate(stakers, mined_blocks, epochs, plot_title, timestamp):
+def plot_stakers(stakers, num_stakers, total_staked, options, timestamp):
+    fig, ax = plt.subplots(1, 1)
+    ax.hist([stake / 1E6 for stake in stakers.values()], bins=64)
+    ax.set_xlabel("Staked (M)")
+    ax.set_ylabel("Number of stakers")
+    whales_staked = round(options.commons_staked * options.whales_stake_percentage / 100)
+    plt.title(f"total stake = {round(total_staked / 1E6)}M, commons = {options.distribution}({num_stakers - options.num_whales}, {round((total_staked - whales_staked) / 1E6)}M), whales = uniform({options.num_whales}, {int(whales_staked/1E6)}M)")
+    plt.savefig(f"plots/stakers_{plots_file_prefix(options)}_{timestamp}.png", bbox_inches="tight")
+
+def plot_mining_rate(stakers, mined_blocks, options, plot_title, timestamp):
     block_percentages, stake_percentages = [], []
     for staker, stake in sorted(stakers.items(), key=lambda l: l[1], reverse=True):
         blocks = mined_blocks[staker] if staker in mined_blocks else 0
-        block_percentages.append(blocks / epochs * 100)
+        block_percentages.append(blocks / options.epochs * 100)
         stake_percentages.append(stake / sum(stakers.values()) * 100)
 
     fig, ax = plt.subplots(1, 1)
@@ -311,9 +312,9 @@ def plot_mining_rate(stakers, mined_blocks, epochs, plot_title, timestamp):
     ax.set_xlabel("Staked (%)")
     ax.set_ylabel("Blocks mined (%)")
     plt.title(plot_title)
-    plt.savefig(f"plots/mining_{timestamp}.png", bbox_inches="tight")
+    plt.savefig(f"plots/mining_{plots_file_prefix(options)}_{timestamp}.png", bbox_inches="tight")
 
-def plot_num_blocks_proposed(num_blocks_proposed, plot_title, timestamp):
+def plot_num_blocks_proposed(num_blocks_proposed, options, plot_title, timestamp):
     x_values, y_values = [], []
     for x, y in num_blocks_proposed.items():
         x_values.append(x)
@@ -325,7 +326,10 @@ def plot_num_blocks_proposed(num_blocks_proposed, plot_title, timestamp):
     ax.xaxis.set_ticks(range(min(x_values), max(x_values) + 1))
     ax.yaxis.set_major_formatter(PercentFormatter(1))
     plt.title(plot_title)
-    plt.savefig(f"plots/blocks_{timestamp}.png", bbox_inches="tight")
+    plt.savefig(f"plots/blocks_{plots_file_prefix(options)}_{timestamp}.png", bbox_inches="tight")
+
+def plots_file_prefix(options):
+    return f"{options.mining_eligibility}_{options.coin_ageing}_{options.replication_selector}_{options.replication}_{options.replication_power}_{options.distribution}_{str(options.num_commons).rjust(4, '0')}_{str(int(options.whales_stake_percentage)).rjust(2, '0')}_{str(options.num_whales).rjust(3, '0')}"
 
 def main():
     parser = optparse.OptionParser()
@@ -351,6 +355,7 @@ def main():
         os.mkdir("logs")
 
     timestamp = datetime.datetime.now().strftime("%Y%m%d%H%M%S")
+    short_timestamp = datetime.datetime.now().strftime("%H%M%S")
 
     logger = configure_logger("mining", timestamp, options.logging)
 
@@ -421,13 +426,16 @@ def main():
         logger.info(f"Updated coin age: {coin_age}")
 
     print_mining_stats(logger, stakers, mined_blocks, options.epochs)
-    if no_blocks_proposed > options.epochs * 0.01:
-        no_proposal_percentage = no_blocks_proposed / options.epochs * 100
-        print(f"WARNING: no blocks proposed for {no_blocks_proposed} epochs ({no_proposal_percentage:.2f}% of total)")
 
-    plot_title = f"Stakers = {options.num_stakers}, total staked = {int(options.total_staked / 1E6)}M, distribution = {options.distribution}, ageing = {options.coin_ageing}, mining = {options.mining_eligibility}"
-    plot_mining_rate(stakers, mined_blocks, options.epochs, plot_title, timestamp)
-    plot_num_blocks_proposed(num_blocks_proposed, plot_title, timestamp)
+    whales_staked = options.commons_staked * options.whales_stake_percentage / 100
+    total_staked = options.commons_staked + whales_staked
+
+    if options.num_whales > 0:
+        plot_title = f"commons = {options.num_commons} ({int(options.commons_staked / 1E6)}M), whales = {options.num_whales} ({int(whales_staked / 1E6)}M), mstb = {options.max_staking_txs_per_block}, rf = {options.replication}, rf-power = {options.replication_power}"
+    else:
+        plot_title = f"commons = {options.num_commons} ({int(options.commons_staked / 1E6)}M), mstb = {options.max_staking_txs_per_block}, rf = {options.replication}, rf-power = {options.replication_power}"
+    plot_mining_rate(stakers, mined_blocks, options, plot_title, short_timestamp)
+    plot_num_blocks_proposed(num_blocks_proposed, options, plot_title, short_timestamp)
 
     if options.mining_eligibility.startswith("vrf-stake"):
         for staker, num_proposed in staker_block_proposed.items():
