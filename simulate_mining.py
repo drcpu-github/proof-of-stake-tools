@@ -441,5 +441,56 @@ def main():
         for staker, num_proposed in staker_block_proposed.items():
             logger.info(f"Staker {staker} proposed {num_proposed} blocks")
 
+    print(f"\nSimulation parameters:")
+    print(f"> Number of epochs:      ", options.epochs)
+    print(f"> Mining eligiblity:     ", options.mining_eligibility)
+    print(f"> Coin ageing:           ", options.coin_ageing)
+    print(f"> Replication selector:  ", options.replication_selector)
+    print(f"> Replication factor:    ", options.replication)
+    if options.replication > 1 and options.coin_ageing == "capped":
+        print(f"> Repl. ageing power:    ", options.replication_power)
+    print(f"> Commons distribution:  ", options.distribution)
+    print( "> Commons initial stake: ", f"{int(options.commons_staked/1E6):,} MWIT (÷ {options.num_commons:,} nodes)")
+    if (options.num_whales > 0):
+        print( "> Whales incoming stake: ", f"+{whales_staked / options.commons_staked * 100:.2f}% => {int(total_staked/1E6):,} MWIT")
+        percentage_str = f"{whales_staked / total_staked * 100:.2f}"
+        print( "> Whales unitary stake:  ", f"{int(whales_staked/options.num_whales):,} WIT (x {options.num_whales:,} nodes)")
+        
+        
+    print(f"\nSimulation results:") 
+
+    void_blocks_percentage = no_blocks_proposed / options.epochs * 100
+    percentage_str = f"{void_blocks_percentage:.2f}"
+    print(f"> Void blocks percentage: {percentage_str.rjust(6)} % ({no_blocks_proposed:,} blocks)")
+
+    underline_stake = 0
+    num_underliners = 0
+    for staker, stake in sorted(stakers.items(), key=lambda l: l[1], reverse=False):
+        if staker not in mined_blocks or mined_blocks[staker] / options.epochs <= stake / total_staked / 10:
+            num_underliners += 1
+            if stake > underline_stake:
+                underline_stake = stake
+    
+    percentage_str = f"{underline_stake / total_staked * 100:.2f}"
+    print(f"> Underliners threshold:  {percentage_str.rjust(6)} % ({int(underline_stake):,} WIT)")
+    percentage_str = f"{num_underliners / num_stakers * 100:.2f}"
+    print(f"> Underliners percentile: {percentage_str.rjust(6)} % ({num_underliners:,} nodes)")
+
+    if options.num_whales > 0:
+        whales_first_epoch = options.epochs
+        for staker, first_epoch in first_block_epoch.items():
+            if staker >= options.num_commons:
+                if first_epoch != 0 and first_epoch < whales_first_epoch:
+                    whales_first_epoch = first_epoch
+
+        whales_mined_blocks = 0
+        for staker, num_mined in mined_blocks.items():
+            if staker >= options.num_commons:
+                whales_mined_blocks += num_mined
+
+        percentage_str = f"{whales_staked / total_staked * 100:.2f}"
+        print(f"> Whales relative stake:  {percentage_str.rjust(6)} % ({options.num_whales/num_stakers*100:.1f}% of nodes)")
+        percentage_str = f"{whales_mined_blocks / options.epochs * 100:.2f}"
+        print(f"> Whales elegibility:     {percentage_str.rjust(6)} % (after {whales_first_epoch:,} epochs)")                    
 if __name__ == "__main__":
     main()
