@@ -366,7 +366,7 @@ def main():
     # all stakers but whales start off with coin age equal to maximum age (total number of stakers)
     coin_age = {
         staker: 
-            len(stakers) * options.replication if staker < options.num_commons 
+            num_stakers - int(staker / options.max_staking_txs_per_block) if staker < options.num_commons 
             else int((staker - options.num_commons) / options.max_staking_txs_per_block)
         for staker in range(num_stakers)}
     logger.info(f"Initial coin age: {coin_age}")
