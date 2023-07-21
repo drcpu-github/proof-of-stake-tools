@@ -492,5 +492,25 @@ def main():
         print(f"> Whales relative stake:  {percentage_str.rjust(6)} % ({options.num_whales/num_stakers*100:.1f}% of nodes)")
         percentage_str = f"{whales_mined_blocks / options.epochs * 100:.2f}"
         print(f"> Whales elegibility:     {percentage_str.rjust(6)} % (after {whales_first_epoch:,} epochs)")                    
+        save_simulation_results(short_timestamp, options, num_stakers, total_staked, void_blocks_percentage, underline_stake, num_underliners, whales_mined_blocks, whales_first_epoch)
+    else:
+        save_simulation_results(short_timestamp, options, num_stakers, total_staked, void_blocks_percentage, underline_stake, num_underliners, 0, options.epochs)
+        
+def save_simulation_results(index, options, num_stakers, total_staked, underline_stake, void_blocks_percentage, num_underliners, whales_mined_blocks, whales_first_epoch):
+    csv_filename = f"results/{options.mining_eligibility}_{options.coin_ageing}_{options.replication_selector}_{options.distribution}.csv"
+    modus_ponens = f"\"{options.mining_eligibility}\";\"{options.coin_ageing}\";\"{options.replication_selector}\";\"{options.distribution}\";"
+    input_params = f"\"{index}\";\"{options.replication}\";\"{options.replication_power}\";\"{options.num_commons}\";\"{int(options.whales_stake_percentage)}\";\"{options.num_whales}\";"
+    void_blocks = f"\"{void_blocks_percentage:.2f}\";"
+    underliners_threshold = f"\"{underline_stake / total_staked * 100:.2f}\";"
+    underliners_percentile = f"\"{num_underliners / num_stakers * 100:.2f}\";"
+    whales_elegibility = f"\"{whales_mined_blocks / options.epochs * 100:.2f}\";"
+    whales_latency = f"\"{whales_first_epoch}\";"
+    try:
+      with open(csv_filename, "a", encoding="utf-8") as csv_file:
+        row = modus_ponens + input_params + void_blocks + underliners_threshold + underliners_percentile + whales_elegibility + whales_latency
+        csv_file.write(row + '\n')
+    except Exception as ex:
+      return
+
 if __name__ == "__main__":
     main()
