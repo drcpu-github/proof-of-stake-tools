@@ -284,6 +284,7 @@ def main():
     parser.add_option("--replication-selector", type="string", default="lowest-hash", dest="replication_selector")
     parser.add_option("--block-reward", type="int", default=250, dest="block_reward")
     parser.add_option("--logging", type="string", default="info", dest="logging")
+    parser.add_option("--max-staking-txs-per-block", type="int", default="32", dest="max_staking_txs_per_block")
     options, args = parser.parse_args()
 
     if not os.path.exists("plots"):
@@ -299,6 +300,12 @@ def main():
 
     stakers = build_stakers(logger, options, timestamp)
     num_stakers = len(stakers)
+    # all stakers but whales start off with coin age equal to maximum age (total number of stakers)
+    coin_age = {
+        staker: 
+            len(stakers) * options.replication if staker < options.num_commons 
+            else int((staker - options.num_commons) / options.max_staking_txs_per_block)
+        for staker in range(num_stakers)}
     logger.info(f"Initial coin age: {coin_age}")
 
     mined_blocks = {}
