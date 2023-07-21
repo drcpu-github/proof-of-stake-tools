@@ -53,38 +53,34 @@ def configure_logger(log_filename, timestamp, log_level):
     return logger
 
 def build_stakers(logger, options, timestamp):
-    num_stakers = options.num_stakers
-    whales = options.whales
-    whales_stake = options.whales_stake
-    total_staked = options.total_staked
-    distribution = options.distribution
-    coin_ageing = options.coin_ageing
-    mining_eligibility = options.mining_eligibility
+    num_stakers = options.num_commons + options.num_whales
 
+    distribution = options.distribution
+    
     if distribution == "random":
-        stakers = [random.random() for s in range(num_stakers)]
+        commons = [random.random() for s in range(options.num_commons)]
     elif distribution == "uniform":
-        stakers = [total_staked / num_stakers for s in range(num_stakers)]
+        commons = [options.commons_staked / num_stakers for s in range(options.num_commons)]
     elif distribution == "beta":
-        stakers = [random.betavariate(0.5, 0.2) for s in range(num_stakers)]
+        commons = [random.betavariate(0.5, 0.2) for s in range(options.num_commons)]
     elif distribution == "exponential":
-        stakers = [random.expovariate(2) for s in range(num_stakers)]
+        commons = [random.expovariate(2) for s in range(options.num_commons)]
     elif distribution == "gamma":
-        stakers = [random.gammavariate(0.5, 0.2) for s in range(num_stakers)]
+        commons = [random.gammavariate(0.5, 0.2) for s in range(options.num_commons)]
     else:
         print("Unknown staking distribution")
         sys.exit(1)
 
-    stakers = {i: int(s / sum(stakers) * (total_staked * (100 - whales_stake) / 100)) for i, s in enumerate(stakers)}
-    num_whales = whales
-    while whales > 0:
-        stakers[num_stakers - whales] = int(whales_stake / 100 / num_whales * total_staked)
-        whales -= 1
+    stakers = {
+        i: int(commons[i] / sum(commons) * options.commons_staked) 
+            if i < options.num_commons 
+            else options.commons_staked * options.whales_stake_percentage / 100 / options.num_whales 
+        for i in range(num_stakers)
+    }
 
     logger.info(f"Stakers: {stakers}")
-
-    plot_stakers(stakers, num_stakers, total_staked, distribution, coin_ageing, mining_eligibility, timestamp)
-
+    plot_stakers(stakers, len(stakers), sum(stakers.values()), options, timestamp)
+    
     return stakers
 
 def plot_stakers(stakers, num_stakers, total_staked, distribution, coin_ageing, mining_eligibility, timestamp):
@@ -276,11 +272,11 @@ def plot_num_blocks_proposed(num_blocks_proposed, plot_title, timestamp):
 
 def main():
     parser = optparse.OptionParser()
-    parser.add_option("--stakers", type="int", default=100, dest="num_stakers")
-    parser.add_option("--total-staked", type="int", default=100000000, dest="total_staked")
+    parser.add_option("--stakers", type="int", default=100, dest="num_commons")
+    parser.add_option("--initial-stake", type="int", default=1_000_000_000, dest="commons_staked")
+    parser.add_option("--whales", type="int", default=0, dest="num_whales")
+    parser.add_option("--whales-stake-increment", type="float", default=0, dest="whales_stake_percentage")
     parser.add_option("--distribution", type="string", default="random", dest="distribution")
-    parser.add_option("--whales", type="int", default=0, dest="whales")
-    parser.add_option("--whales-stake", type="int", default=0, dest="whales_stake")
     parser.add_option("--epochs", type="int", default=100000, dest="epochs")
     parser.add_option("--replication", type="int", default=16, dest="replication")
     parser.add_option("--coin-ageing", type="string", default="reset", dest="coin_ageing")
@@ -302,8 +298,7 @@ def main():
     logger.info(f"Command line arguments: {options}")
 
     stakers = build_stakers(logger, options, timestamp)
-    # Everyone starts off with coin age equal to 1, otherwise no block will be mined in the first epoch
-    coin_age = {staker: 1 for staker in range(options.num_stakers)}
+    num_stakers = len(stakers)
     logger.info(f"Initial coin age: {coin_age}")
 
     mined_blocks = {}
