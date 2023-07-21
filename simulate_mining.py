@@ -226,10 +226,11 @@ def update_coin_age_halving(num_stakers, coin_age, miner):
             coin_age[staker] = int(coin_age[staker] / 2)
     return coin_age
 
-def update_coin_age_capped(num_stakers, coin_age, miner):
+def update_coin_age_capped(num_stakers, coin_age, miner, options):
     for staker in range(num_stakers):
         if staker != miner:
-            coin_age[staker] = min(coin_age[staker] + 1, 1920)
+            # max age capped to number of stakers
+            coin_age[staker] = min(coin_age[staker] + 1, num_stakers * pow(options.replication, options.replication_power))
         else:
             coin_age[staker] = 0
     return coin_age
@@ -279,6 +280,7 @@ def main():
     parser.add_option("--distribution", type="string", default="random", dest="distribution")
     parser.add_option("--epochs", type="int", default=100000, dest="epochs")
     parser.add_option("--replication", type="int", default=16, dest="replication")
+    parser.add_option("--replication-power", type="float", default=1, dest="replication_power")
     parser.add_option("--coin-ageing", type="string", default="reset", dest="coin_ageing")
     parser.add_option("--mining-eligibility", type="string", default="vrf-stake", dest="mining_eligibility")
     parser.add_option("--replication-selector", type="string", default="lowest-hash", dest="replication_selector")
@@ -345,11 +347,11 @@ def main():
         if options.coin_ageing == "disabled":
             pass
         elif options.coin_ageing == "reset":
-            coin_age = update_coin_age_reset(options.num_stakers, coin_age, miner)
+            coin_age = update_coin_age_reset(num_stakers, coin_age, miner, options)
         elif options.coin_ageing == "halving":
-            coin_age = update_coin_age_halving(options.num_stakers, coin_age, miner)
+            coin_age = update_coin_age_halving(num_stakers, coin_age, miner, options)
         elif options.coin_ageing == "capped":
-            coin_age = update_coin_age_capped(options.num_stakers, coin_age, miner)
+            coin_age = update_coin_age_capped(num_stakers, coin_age, miner, options)
         else:
             print("Unknown coin ageing strategy")
             sys.exit(1)
