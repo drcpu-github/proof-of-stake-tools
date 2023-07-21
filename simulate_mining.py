@@ -2,6 +2,7 @@
 
 import datetime
 import logging
+import numpy
 import optparse
 import os
 import random
@@ -134,6 +135,61 @@ def simulate_epoch_vrf_stake(logger, epoch, stakers, coin_age, replication, repl
         logger.info(f"Staker {miner[0]} is selected to propose a block: {miner[1]}")
         return miner[0], proposals
 
+def simulate_epoch_vrf_stake_adaptative(logger, epoch, stakers, coin_age, replication, replication_selector):
+    logger.info(f"Simulating epoch {epoch + 1}")
+    # eligibility: vrf < (2 ** 256) * own_power / global_power * rf
+
+    # Calculate global power
+             
+    powers = [ min(stake * coin_age[staker], 147_573_952_589_676_416) for staker, stake in stakers.items() ]
+    global_power = max(powers)   
+    num_stakers = len(stakers)
+    threshold_power = numpy.quantile(powers, 1 - replication / num_stakers) if replication < num_stakers else 0
+    
+    logger.info(f"Threshold vs Global power: {threshold_power} vs {global_power} ({threshold_power / global_power * 100}%)")
+
+    proposals = []
+    for staker, stake in stakers.items():
+        # Calculate power of the staker
+        own_power = min(stake * coin_age[staker], 147_573_952_589_676_416)  
+        eligibility = own_power / global_power * replication if own_power >= threshold_power else 0
+        if eligibility > 1.0:
+            logger.warning(f"Eligibility for staker {staker} exceeds 1.0: {eligibility}")
+        vrf = random.random()
+        if vrf < eligibility:
+            logger.info(f"Staker {staker} is eligible to propose a block: {vrf} < {eligibility}")
+            # Miner with the lowest VRF value will be picked as the winner
+            if replication_selector == "lowest-hash":
+                proposals.append((staker, vrf))
+            # Miner with the highest power will be picked as the winner
+            elif replication_selector == "highest-power":
+                proposals.append((staker, own_power, vrf))
+            else:
+                print("Unknown replication selector")
+                sys.exit(1)
+
+    if len(proposals) == 0:
+        logger.warning(f"No blocks proposed")
+        return -1, []
+    else:
+        if replication_selector == "lowest-hash":
+            miner = min(proposals, key=lambda l: l[1])
+        elif replication_selector == "highest-power":
+            miner = max(proposals, key=lambda l: l[1])
+            # select candidates from those having maximum power (there could be many),
+            # ultimately selecting the one having the highest vrf value
+            candidates = map(lambda p: (p[0], p[2] if p[1] == miner[1] else 0), proposals)
+            proposals = []
+            for candidate in candidates:
+                proposals.append(candidate)
+            miner = max(proposals, key=lambda l: l[1])
+
+        else:
+            print("Unknown replication selector")
+            sys.exit(1)
+        logger.info(f"Staker {miner[0]} is selected to propose a block: {miner[1]}")
+        return miner[0], proposals
+
 def simulate_epoch_modulo_stake(logger, epoch, stakers, coin_age):
     logger.info(f"Simulating epoch {epoch + 1}")
     # eligibility: random_value % global_power == ordered_power_staker_x
@@ -210,7 +266,7 @@ def simulate_epoch_modulo_slot(logger, epoch, stakers, coin_age, replication, re
     logger.info(f"Staker {miner[0]} is selected to propose a block: {miner[1]}")
     return miner[0], len(proposals)
 
-def update_coin_age_reset(num_stakers, coin_age, miner):
+def update_coin_age_reset(num_stakers, coin_age, miner, options):
     for staker in range(num_stakers):
         if staker != miner:
             coin_age[staker] = min(coin_age[staker] + 1, 53760)
@@ -218,7 +274,7 @@ def update_coin_age_reset(num_stakers, coin_age, miner):
             coin_age[staker] = 0
     return coin_age
 
-def update_coin_age_halving(num_stakers, coin_age, miner):
+def update_coin_age_halving(num_stakers, coin_age, miner, options):
     for staker in range(num_stakers):
         if staker != miner:
             coin_age[staker] += 1
@@ -282,7 +338,7 @@ def main():
     parser.add_option("--replication", type="int", default=16, dest="replication")
     parser.add_option("--replication-power", type="float", default=1, dest="replication_power")
     parser.add_option("--coin-ageing", type="string", default="reset", dest="coin_ageing")
-    parser.add_option("--mining-eligibility", type="string", default="vrf-stake", dest="mining_eligibility")
+    parser.add_option("--mining-eligibility", type="string", default="vrf-stake-adaptative", dest="mining_eligibility")
     parser.add_option("--replication-selector", type="string", default="lowest-hash", dest="replication_selector")
     parser.add_option("--block-reward", type="int", default=250, dest="block_reward")
     parser.add_option("--logging", type="string", default="info", dest="logging")
@@ -316,8 +372,11 @@ def main():
     staker_block_proposed = {}
     first_block_epoch = {staker: 0 for staker in range(num_stakers)}
     for epoch in tqdm.tqdm(range(options.epochs)):
-        if options.mining_eligibility == "vrf-stake":
-            miner, proposals = simulate_epoch_vrf_stake(logger, epoch, stakers, coin_age, options.replication, options.replication_selector)
+        if options.mining_eligibility.startswith("vrf-stake"):
+            if options.mining_eligibility == "vrf-stake-adaptative":
+                miner, proposals = simulate_epoch_vrf_stake_adaptative(logger, epoch, stakers, coin_age, options.replication, options.replication_selector)
+            else:
+                miner, proposals = simulate_epoch_vrf_stake(logger, epoch, stakers, coin_age, options.replication, options.replication_selector)
             for proposer, vrf in proposals:
                 if proposer not in staker_block_proposed:
                     staker_block_proposed[proposer] = 0
@@ -370,7 +429,7 @@ def main():
     plot_mining_rate(stakers, mined_blocks, options.epochs, plot_title, timestamp)
     plot_num_blocks_proposed(num_blocks_proposed, plot_title, timestamp)
 
-    if options.mining_eligibility == "vrf-stake":
+    if options.mining_eligibility.startswith("vrf-stake"):
         for staker, num_proposed in staker_block_proposed.items():
             logger.info(f"Staker {staker} proposed {num_proposed} blocks")
 
