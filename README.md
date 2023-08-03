@@ -32,7 +32,7 @@ Options:
 - --mining-eligibility
     - explanation: allows setting different strategies for miner selection
     - default: vrf-stake-adaptative
-    - allowed values: vrf-stake-adaptative, vrf-stake, module-stake, modulo-slot, vrf-stake-adaptive
+    - allowed values: vrf-stake-adaptative, vrf-stake, module-stake, modulo-slot
 - --coin-ageing
     - explanation: allows to experiment with different coin age strategies
     - default: reset
