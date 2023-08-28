@@ -57,7 +57,7 @@ def build_stakers(logger, options, timestamp):
     num_stakers = options.num_commons + options.num_whales
 
     distribution = options.distribution
-    
+
     if distribution == "random":
         commons = [random.random() for s in range(options.num_commons)]
     elif distribution == "uniform":
@@ -73,15 +73,15 @@ def build_stakers(logger, options, timestamp):
         sys.exit(1)
 
     stakers = {
-        i: int(commons[i] / sum(commons) * options.commons_staked) 
-            if i < options.num_commons 
-            else options.commons_staked * options.whales_stake_percentage / 100 / options.num_whales 
+        i: int(commons[i] / sum(commons) * options.commons_staked)
+            if i < options.num_commons
+            else options.commons_staked * options.whales_stake_percentage / 100 / options.num_whales
         for i in range(num_stakers)
     }
 
     logger.info(f"Stakers: {stakers}")
     plot_stakers(stakers, len(stakers), sum(stakers.values()), options, timestamp)
-    
+
     return stakers
 
 def simulate_epoch_vrf_stake(logger, epoch, stakers, coin_age, replication, replication_selector):
@@ -129,22 +129,20 @@ def simulate_epoch_vrf_stake(logger, epoch, stakers, coin_age, replication, repl
 
 def simulate_epoch_vrf_stake_adaptative(logger, epoch, stakers, coin_age, replication, replication_selector):
     logger.info(f"Simulating epoch {epoch + 1}")
-    # eligibility: vrf < (2 ** 256) * own_power / global_power * rf
 
     # Calculate global power
-             
     powers = [ min(stake * coin_age[staker], 147_573_952_589_676_416) for staker, stake in stakers.items() ]
-    global_power = max(powers)   
+    max_power = max(powers)
     num_stakers = len(stakers)
     threshold_power = numpy.quantile(powers, 1 - replication / num_stakers) if replication < num_stakers else 0
-    
-    logger.info(f"Threshold vs Global power: {threshold_power} vs {global_power} ({threshold_power / global_power * 100}%)")
+
+    logger.info(f"Threshold vs Global power: {threshold_power} vs {max_power} ({threshold_power / max_power * 100}%)")
 
     proposals = []
     for staker, stake in stakers.items():
         # Calculate power of the staker
-        own_power = min(stake * coin_age[staker], 147_573_952_589_676_416)  
-        eligibility = own_power / global_power * replication if own_power >= threshold_power else 0
+        own_power = min(stake * coin_age[staker], 147_573_952_589_676_416)
+        eligibility = own_power / max_power * replication if own_power >= threshold_power else 0
         if eligibility > 1.0:
             logger.warning(f"Eligibility for staker {staker} exceeds 1.0: {eligibility}")
         vrf = random.random()
@@ -363,12 +361,7 @@ def main():
 
     stakers = build_stakers(logger, options, timestamp)
     num_stakers = len(stakers)
-    # all stakers but whales start off with coin age equal to maximum age (total number of stakers)
-    coin_age = {
-        staker: 
-            num_stakers - int(staker / options.max_staking_txs_per_block) if staker < options.num_commons 
-            else int((staker - options.num_commons) / options.max_staking_txs_per_block)
-        for staker in range(num_stakers)}
+    coin_age = {staker: 1 for staker in range(num_stakers)}
     logger.info(f"Initial coin age: {coin_age}")
 
     mined_blocks = {}
@@ -455,9 +448,8 @@ def main():
         print( "> Whales incoming stake: ", f"+{whales_staked / options.commons_staked * 100:.2f}% => {int(total_staked/1E6):,} MWIT")
         percentage_str = f"{whales_staked / total_staked * 100:.2f}"
         print( "> Whales unitary stake:  ", f"{int(whales_staked/options.num_whales):,} WIT (x {options.num_whales:,} nodes)")
-        
-        
-    print(f"\nSimulation results:") 
+
+    print(f"\nSimulation results:")
 
     void_blocks_percentage = no_blocks_proposed / options.epochs * 100
     percentage_str = f"{void_blocks_percentage:.2f}"
@@ -470,7 +462,7 @@ def main():
             num_underliners += 1
             if stake > underline_stake:
                 underline_stake = stake
-    
+
     percentage_str = f"{underline_stake / total_staked * 100:.2f}"
     print(f"> Underliners threshold:  {percentage_str.rjust(6)} % ({int(underline_stake):,} WIT)")
     percentage_str = f"{num_underliners / num_stakers * 100:.2f}"
@@ -491,11 +483,11 @@ def main():
         percentage_str = f"{whales_staked / total_staked * 100:.2f}"
         print(f"> Whales relative stake:  {percentage_str.rjust(6)} % ({options.num_whales/num_stakers*100:.1f}% of nodes)")
         percentage_str = f"{whales_mined_blocks / options.epochs * 100:.2f}"
-        print(f"> Whales elegibility:     {percentage_str.rjust(6)} % (after {whales_first_epoch:,} epochs)")                    
+        print(f"> Whales elegibility:     {percentage_str.rjust(6)} % (after {whales_first_epoch:,} epochs)")
         save_simulation_results(short_timestamp, options, num_stakers, total_staked, void_blocks_percentage, underline_stake, num_underliners, whales_mined_blocks, whales_first_epoch)
     else:
         save_simulation_results(short_timestamp, options, num_stakers, total_staked, void_blocks_percentage, underline_stake, num_underliners, 0, options.epochs)
-        
+
 def save_simulation_results(index, options, num_stakers, total_staked, underline_stake, void_blocks_percentage, num_underliners, whales_mined_blocks, whales_first_epoch):
     csv_filename = f"results/{options.mining_eligibility}_{options.coin_ageing}_{options.replication_selector}_{options.distribution}.csv"
     modus_ponens = f"\"{options.mining_eligibility}\";\"{options.coin_ageing}\";\"{options.replication_selector}\";\"{options.distribution}\";"
