@@ -404,24 +404,26 @@ def main():
     data_requests_solved_at_attempt[-1] = failed_data_requests
     plot_data_requests_solved_at(data_requests_solved_at_attempt, options, plot_title, short_timestamp)
 
-    print(f"\nSimulation parameters:")
-    print(f"> Number of epochs:      ", options.epochs)
-    print(f"> Mining eligiblity:     ", options.eligibility)
-    print(f"> Coin ageing:           ", options.coin_ageing)
-    print(f"> Commons distribution:  ", options.distribution)
-    print(f"> Witnesses selector:    ", options.witnesses_selector)
-    print( "> Commons initial stake: ", f"{int(options.commons_staked/1E6):,} MWIT (÷ {options.num_commons:,} nodes)")
+    print("\nSimulation parameters:")
+    print("> Number of epochs:         ", options.epochs)
+    print("> Mining eligiblity:        ", options.eligibility)
+    print("> Coin ageing:              ", options.coin_ageing)
+    print("> Commons distribution:     ", options.distribution)
+    print("> Data request per epoch:   ", options.data_requests_per_epoch)
+    print("> Data request witnesses:   ", options.data_requests_witnesses)
+    print("> Witnesses selector:       ", options.witnesses_selector)
+    print("> Commons initial stake:    ", f"{int(options.commons_staked/1E6):,} MWIT (÷ {options.num_commons:,} nodes)")
     if (options.num_whales > 0):
-        print( "> Whales incoming stake: ", f"+{whales_staked / options.commons_staked * 100:.2f}% => {int(total_staked/1E6):,} MWIT")
+        print("> Whales incoming stake:    ", f"+{whales_staked / options.commons_staked * 100:.2f}% => {int(total_staked/1E6):,} MWIT")
         percentage_str = f"{whales_staked / total_staked * 100:.2f}"
-        print( "> Whales unitary stake:  ", f"{int(whales_staked/options.num_whales):,} WIT (x {options.num_whales:,} nodes)")
+        print("> Whales unitary stake:     ", f"{int(whales_staked/options.num_whales):,} WIT (x {options.num_whales:,} nodes)")
 
     print(f"\nSimulation results:")
 
     failed_data_requests_percentage = failed_data_requests / total_data_requests * 100
     percentage_str = f"{failed_data_requests_percentage:.2f}"
-    print(f"> Total data requests: {total_data_requests:,} data requests")
-    print(f"> Failed data requests: {failed_data_requests} ({percentage_str.rjust(6)} %)")
+    print(f"> Total data requests:       {total_data_requests:,} data requests")
+    print(f"> Failed data requests:      {failed_data_requests:,} ({percentage_str} %)")
 
     underline_stake, num_underliners = 0, 0
     for staker, stake in sorted(stakers.items(), key=lambda l: l[1], reverse=False):
@@ -431,9 +433,9 @@ def main():
                 underline_stake = stake
 
     percentage_str = f"{underline_stake / total_staked * 100:.2f}"
-    print(f"> Underliners threshold:  {percentage_str.rjust(6)} % ({int(underline_stake):,} WIT)")
+    print(f"> Underliners threshold:     {percentage_str} % ({int(underline_stake):,} WIT)")
     percentage_str = f"{num_underliners / num_stakers * 100:.2f}"
-    print(f"> Underliners percentile: {percentage_str.rjust(6)} % ({num_underliners:,} nodes)")
+    print(f"> Underliners percentile:    {percentage_str} % ({num_underliners:,} nodes)")
 
     if options.num_whales > 0:
         whales_data_requests_solved = 0
@@ -442,9 +444,12 @@ def main():
                 whales_data_requests_solved += num_solved
 
         percentage_str = f"{whales_staked / total_staked * 100:.2f}"
-        print(f"> Whales relative stake:  {percentage_str.rjust(6)} % ({options.num_whales / num_stakers * 100:.1f}% of nodes)")
+        print(f"> Whales relative stake:     {percentage_str} % ({options.num_whales / num_stakers * 100:.2f}% of nodes)")
         percentage_str = f"{whales_data_requests_solved / total_data_requests / options.num_whales * 100:.2f}"
-        print(f"> Whales eligibility:     {percentage_str.rjust(6)} %")
+        print(f"> Whales eligibility:        {percentage_str} %")
+        whale_relative_stake = whales_staked / options.num_whales / total_staked
+        expected_eligibility = (1 - whale_relative_stake) ** (options.data_requests_witnesses - 1) * whale_relative_stake * options.data_requests_witnesses
+        print(f"> Expected eligibility:      {expected_eligibility * 100:.2f} %")
         save_simulation_results(short_timestamp, options, num_stakers, total_staked, failed_data_requests_percentage, underline_stake, num_underliners, whales_data_requests_solved)
     else:
         save_simulation_results(short_timestamp, options, num_stakers, total_staked, failed_data_requests_percentage, underline_stake, num_underliners, 0)
