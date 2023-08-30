@@ -75,10 +75,14 @@ def build_stakers(logger, options, timestamp):
         print("Unknown staking distribution")
         sys.exit(1)
 
+    # Make whale stake also random, but constrained
+    whale_stake = options.commons_staked * options.whales_stake_percentage / 100
+    whales = [random.uniform(0.5, 2.0) for w in range(options.num_whales)]
+
     stakers = {
         i: commons[i] / sum(commons) * (options.commons_staked - options.num_commons * options.minimum_staked) + options.minimum_staked
             if i < options.num_commons
-            else options.commons_staked * options.whales_stake_percentage / 100 / options.num_whales
+            else whales[i - options.num_commons] / sum(whales) * whale_stake
         for i in range(num_stakers)
     }
 
@@ -92,7 +96,7 @@ def simulate_eligibility_vrf_stake_adaptative(logger, epoch, data_request, stake
     witnesses = options.data_requests_witnesses
     witnesses_selector = options.witnesses_selector
 
-    witness_replication = witnesses * replication
+    witness_replication = witnesses * (2 ** replication)
 
     # Calculate global power
     powers = [ min(stake * coin_age[staker], 147_573_952_589_676_416) for staker, stake in stakers.items() ]
@@ -106,7 +110,10 @@ def simulate_eligibility_vrf_stake_adaptative(logger, epoch, data_request, stake
     for staker, stake in stakers.items():
         # Calculate power of the staker
         own_power = min(stake * coin_age[staker], 147_573_952_589_676_416)
-        eligibility = own_power / global_power if own_power >= threshold_power else 0
+        if options.witnesses_selector == "lowest-vrf":
+            eligibility = own_power / global_power * (replication + 1) if own_power >= threshold_power else 0
+        else:
+            eligibility = own_power / global_power if own_power >= threshold_power else 0
         vrf = random.random()
         if vrf < eligibility:
             logger.info(f"Staker {staker} is eligible to solve a data request: {vrf} < {eligibility}")
@@ -126,15 +133,19 @@ def simulate_eligibility_vrf_stake_adaptative(logger, epoch, data_request, stake
         return [s[0] for s in solvers]
 
 def update_coin_age_reset(num_stakers, coin_age, solvers, options):
-    if len(solvers) == 0:
-        return coin_age
-
     for staker in range(num_stakers):
         if staker not in solvers:
             coin_age[staker] = coin_age[staker] + 1
         else:
             coin_age[staker] = 0
+    return coin_age
 
+def update_coin_age_collateral(stakers, coin_age, solvers, options):
+    for staker in range(len(stakers)):
+        if staker not in solvers:
+            coin_age[staker] = coin_age[staker] + 1
+        else:
+            coin_age[staker] = (1 - solvers[staker] * options.data_requests_collateral / stakers[staker]) * coin_age[staker]
     return coin_age
 
 def print_solver_stats(logger, stakers, solved_data_requests, total_data_requests):
@@ -199,6 +210,7 @@ def main():
     parser.add_option("--data-requests-per-epoch", type="int", default=3, dest="data_requests_per_epoch")
     parser.add_option("--data-requests-distribution", type="string", default="uniform", dest="data_requests_distribution")
     parser.add_option("--data-requests-witnesses", type="int", default=10, dest="data_requests_witnesses")
+    parser.add_option("--data-requests-collateral", type="int", default=10, dest="data_requests_collateral")
     parser.add_option("--witnesses-selector", type="string", default="highest-power", dest="witnesses_selector")
     parser.add_option("--coin-ageing", type="string", default="reset", dest="coin_ageing")
     parser.add_option("--eligibility", type="string", default="vrf-stake-adaptative", dest="eligibility")
@@ -223,7 +235,7 @@ def main():
     if options.witnesses_selector not in allowed_witness_selectors:
         print(f"Unknown witness selector: {', '.join(allowed_witness_selectors)}")
         sys.exit(1)
-    allowed_coin_ageing = ("reset", )
+    allowed_coin_ageing = ("disabled", "reset", "collateral", )
     if options.coin_ageing not in allowed_coin_ageing:
         print(f"Unknown coin ageing strategy: {', '.join(allowed_coin_ageing)}")
         sys.exit(1)
@@ -293,8 +305,7 @@ def main():
         for attempt, data_requests in sorted(data_requests_this_epoch.items()):
             for dr in data_requests:
                 if options.eligibility == "vrf-stake-adaptative":
-                    replication = 2 ** attempt
-                    dr_solvers = simulate_eligibility_vrf_stake_adaptative(logger, epoch, dr, stakers, coin_age, options, replication)
+                    dr_solvers = simulate_eligibility_vrf_stake_adaptative(logger, epoch, dr, stakers, coin_age, options, attempt)
 
                 data_requests_left[attempt].remove(dr)
                 if dr_solvers == []:
@@ -322,8 +333,16 @@ def main():
                 solved_requests[solver] = 0
             solved_requests[solver] += 1
 
-        if options.coin_ageing == "reset":
+        # No data requests are solved, don't update coin age
+        if len(solvers) == 0:
+            continue
+
+        if options.coin_ageing == "disabled":
+            pass
+        elif options.coin_ageing == "reset":
             coin_age = update_coin_age_reset(num_stakers, coin_age, Counter(solvers), options)
+        elif options.coin_ageing == "collateral":
+            coin_age = update_coin_age_collateral(stakers, coin_age, Counter(solvers), options)
         logger.info(f"Updated coin age: {coin_age}")
 
     total_data_requests = sum(data_requests * amount for data_requests, amount in data_requests_per_epoch.items())
@@ -336,7 +355,7 @@ def main():
     whales_str = ""
     if options.num_whales > 0:
         whales_str = f", whales = {options.num_whales} ({int(whales_staked / 1E6)}M)"
-    plot_title = f"commons = {options.num_commons} ({int(options.commons_staked / 1E6)}M){whales_str}, witnesses selector = {options.witnesses_selector}"
+    plot_title = f"commons = {options.num_commons} ({int(options.commons_staked / 1E6)}M){whales_str}, witnesses selector = {options.witnesses_selector}, coin ageing = {options.coin_ageing}"
     plot_solving_rate(stakers, solved_requests, total_data_requests, options, plot_title, short_timestamp)
 
     data_requests_solved_at_attempt[-1] = failed_data_requests
@@ -358,7 +377,8 @@ def main():
 
     failed_data_requests_percentage = failed_data_requests / total_data_requests * 100
     percentage_str = f"{failed_data_requests_percentage:.2f}"
-    print(f"> Failed data requests percentage: {percentage_str.rjust(6)} % ({total_data_requests:,} data requests)")
+    print(f"> Total data requests: {total_data_requests:,} data requests")
+    print(f"> Failed data requests: {failed_data_requests} ({percentage_str.rjust(6)} %)")
 
     underline_stake, num_underliners = 0, 0
     for staker, stake in sorted(stakers.items(), key=lambda l: l[1], reverse=False):
@@ -381,7 +401,7 @@ def main():
         percentage_str = f"{whales_staked / total_staked * 100:.2f}"
         print(f"> Whales relative stake:  {percentage_str.rjust(6)} % ({options.num_whales / num_stakers * 100:.1f}% of nodes)")
         percentage_str = f"{whales_data_requests_solved / total_data_requests / options.num_whales * 100:.2f}"
-        print(f"> Whales elegibility:     {percentage_str.rjust(6)} %")
+        print(f"> Whales eligibility:     {percentage_str.rjust(6)} %")
         save_simulation_results(short_timestamp, options, num_stakers, total_staked, failed_data_requests_percentage, underline_stake, num_underliners, whales_data_requests_solved)
     else:
         save_simulation_results(short_timestamp, options, num_stakers, total_staked, failed_data_requests_percentage, underline_stake, num_underliners, 0)
