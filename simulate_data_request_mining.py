@@ -88,6 +88,47 @@ def build_stakers(logger, options, timestamp):
 
     return stakers
 
+def simulate_eligibility_vrf_stake_linear(logger, epoch, data_request, stakers, coin_age, options, replication):
+    logger.info(f"Simulating epoch {epoch + 1}, data request {data_request} (replication: {replication})")
+    # eligibility: vrf < (2 ** 256) * own_power / global_power * rf
+
+    # Create local copies with shorter variable names
+    witnesses = options.data_requests_witnesses
+    witnesses_selector = options.witnesses_selector
+
+    witness_replication = witnesses * (2 ** replication)
+
+    # Calculate global power
+    powers = [min(stake * coin_age[staker], 147_573_952_589_676_416) for staker, stake in stakers.items()]
+    max_power, num_stakers = max(powers), len(stakers)
+    threshold_power = numpy.quantile(powers, 1 - witness_replication / num_stakers) if witness_replication < num_stakers else 0
+
+    solvers = []
+    for staker, stake in stakers.items():
+        # Calculate power of the staker
+        own_power = min(stake * coin_age[staker], 147_573_952_589_676_416)
+        if own_power >= threshold_power:
+            eligibility = own_power / ((replication / 4 * threshold_power + (4 - replication) / 4 * max_power) or 1)
+        else:
+            eligibility = 0
+        vrf = random.random()
+        if vrf < eligibility:
+            logger.info(f"Staker {staker} is eligible to solve a data request: {vrf} < {eligibility}")
+            # Miner with the lowest VRF value will be picked as the winner
+            solvers.append((staker, own_power, vrf))
+
+    if len(solvers) < witnesses:
+        logger.warning(f"Not enough witnesses ({len(solvers)} < {witnesses}) found for data request {data_request}")
+        return []
+    else:
+        logger.info(f"Found {len(solvers)} witnesses for data request {data_request}")
+        if witnesses_selector == "lowest-vrf":
+            solvers = sorted(solvers, key=lambda l: l[2])[:witnesses]
+        elif witnesses_selector == "highest-power":
+            solvers = sorted(solvers, key=lambda l: l[1], reverse=True)[:witnesses]
+        logger.info(f"Stakers {solvers} are selected to solve a data request")
+        return [s[0] for s in solvers]
+
 def simulate_eligibility_vrf_stake_adaptative(logger, epoch, data_request, stakers, coin_age, options, replication):
     logger.info(f"Simulating epoch {epoch + 1}, data request {data_request} (replication: {replication})")
     # eligibility: vrf < (2 ** 256) * own_power / global_power * rf
@@ -111,7 +152,7 @@ def simulate_eligibility_vrf_stake_adaptative(logger, epoch, data_request, stake
         # Calculate power of the staker
         own_power = min(stake * coin_age[staker], 147_573_952_589_676_416)
         if options.witnesses_selector == "lowest-vrf":
-            eligibility = own_power / global_power * (replication + 1) if own_power >= threshold_power else 0
+            eligibility = own_power / global_power * replication if own_power >= threshold_power else 0
         else:
             eligibility = own_power / global_power if own_power >= threshold_power else 0
         vrf = random.random()
@@ -223,7 +264,7 @@ def main():
     if not os.path.exists("logs"):
         os.mkdir("logs")
 
-    allowed_eligibility_strategies = ("vrf-stake-adaptative",)
+    allowed_eligibility_strategies = ("vrf-stake-adaptative", "vrf-stake-linear")
     if options.eligibility not in allowed_eligibility_strategies:
         print(f"Unknown eligibility strategy: {', '.join(allowed_eligibility_strategies)}")
         sys.exit(1)
@@ -300,16 +341,18 @@ def main():
 
         # Simulate the data requests
         solvers = []
-        data_requests_this_epoch[0] = [data_requests_created + d + 1 for d in range(num_data_requests)]
+        data_requests_this_epoch[1] = [data_requests_created + d + 1 for d in range(num_data_requests)]
         data_requests_left = {k: list(v) for k, v in data_requests_this_epoch.items()}
         for attempt, data_requests in sorted(data_requests_this_epoch.items()):
             for dr in data_requests:
                 if options.eligibility == "vrf-stake-adaptative":
                     dr_solvers = simulate_eligibility_vrf_stake_adaptative(logger, epoch, dr, stakers, coin_age, options, attempt)
+                elif options.eligibility == "vrf-stake-linear":
+                    dr_solvers = simulate_eligibility_vrf_stake_linear(logger, epoch, dr, stakers, coin_age, options, attempt)
 
                 data_requests_left[attempt].remove(dr)
                 if dr_solvers == []:
-                    if attempt + 1 == 4:
+                    if attempt + 1 > 4:
                         logger.warning(f"Failed to resolve data request {dr}")
                         failed_data_requests += 1
                         continue
@@ -322,10 +365,10 @@ def main():
                     data_requests_solved_at_attempt[attempt] += 1
                     solvers.extend(dr_solvers)
 
-            if attempt == 0:
+            if attempt == 1:
                 data_requests_created += num_data_requests
 
-        assert len(data_requests_left[0]) == 0, ', '.join(f'{key}: {value}' for key, value in sorted(data_requests_left.items()))
+        assert len(data_requests_left[1]) == 0, ', '.join(f'{key}: {value}' for key, value in sorted(data_requests_left.items()))
         data_requests_this_epoch = {k: v for k,v in data_requests_left.items()}
 
         for solver in solvers:
