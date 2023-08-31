@@ -281,6 +281,10 @@ def main():
         print(f"Unknown coin ageing strategy: {', '.join(allowed_coin_ageing)}")
         sys.exit(1)
 
+    if options.data_requests_witnesses > (options.num_commons + options.num_whales) / 2:
+        print(f"Amount of data request witnesses ({options.data_requests_witnesses}) cannot exceed half of the total stakers ({options.num_commons + options.num_whales})")
+        sys.exit(1)
+
     if options.seed_randomness:
         random.seed(1337)
 
