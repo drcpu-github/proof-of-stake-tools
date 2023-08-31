@@ -447,9 +447,6 @@ def main():
         print(f"> Whales relative stake:     {percentage_str} % ({options.num_whales / num_stakers * 100:.2f}% of nodes)")
         percentage_str = f"{whales_data_requests_solved / total_data_requests / options.num_whales * 100:.2f}"
         print(f"> Whales eligibility:        {percentage_str} %")
-        whale_relative_stake = whales_staked / options.num_whales / total_staked
-        expected_eligibility = (1 - whale_relative_stake) ** (options.data_requests_witnesses - 1) * whale_relative_stake * options.data_requests_witnesses
-        print(f"> Expected eligibility:      {expected_eligibility * 100:.2f} %")
         save_simulation_results(short_timestamp, options, num_stakers, total_staked, failed_data_requests_percentage, underline_stake, num_underliners, whales_data_requests_solved)
     else:
         save_simulation_results(short_timestamp, options, num_stakers, total_staked, failed_data_requests_percentage, underline_stake, num_underliners, 0)
