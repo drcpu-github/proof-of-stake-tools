@@ -178,7 +178,7 @@ def update_coin_age_reset(num_stakers, coin_age, solvers, options):
         if staker not in solvers:
             coin_age[staker] = coin_age[staker] + 1
         else:
-            coin_age[staker] = 0
+            coin_age[staker] = 1
     return coin_age
 
 def update_coin_age_collateral(stakers, coin_age, solvers, options):
