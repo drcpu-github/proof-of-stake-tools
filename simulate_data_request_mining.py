@@ -416,6 +416,7 @@ def main():
     data_requests_solved_at_attempt[-1] = failed_data_requests
     plot_data_requests_solved_at(data_requests_solved_at_attempt, options, plot_title, short_timestamp)
 
+    # Print and save summary
     print("\nSimulation parameters:")
     print("> Number of epochs:                    ", options.epochs)
     print("> Mining eligiblity:                   ", options.eligibility)
@@ -453,8 +454,8 @@ def main():
     percentage_str = f"{num_underliners / num_stakers * 100:.2f}"
     print(f"> Underliners percentile:               {percentage_str} % ({num_underliners:,} nodes)")
 
+    whales_data_requests_solved = 0
     if options.num_whales > 0:
-        whales_data_requests_solved = 0
         for staker, num_solved in solved_requests.items():
             if staker >= options.num_commons:
                 whales_data_requests_solved += num_solved
@@ -463,24 +464,46 @@ def main():
         print(f"> Whales relative stake:                {percentage_str} % ({options.num_whales / num_stakers * 100:.2f}% of nodes)")
         percentage_str = f"{whales_data_requests_solved / total_data_requests / options.num_whales * 100:.2f}"
         print(f"> Whales eligibility:                   {percentage_str} %")
-        save_simulation_results(short_timestamp, options, num_stakers, total_staked, failed_data_requests_percentage, underline_stake, num_underliners, whales_data_requests_solved)
-    else:
-        save_simulation_results(short_timestamp, options, num_stakers, total_staked, failed_data_requests_percentage, underline_stake, num_underliners, 0)
 
-def save_simulation_results(index, options, num_stakers, total_staked, underline_stake, failed_data_requests_percentage, num_underliners, whales_data_requests_solved):
-    csv_filename = f"results/{options.eligibility}_{options.coin_ageing}_{options.witnesses_selector}_{options.distribution}.csv"
-    modus_ponens = f"\"{options.eligibility}\";\"{options.coin_ageing}\";\"{options.witnesses_selector}\";\"{options.distribution}\";"
-    input_params = f"\"{index}\";\"{options.num_commons}\";\"{int(options.whales_stake_percentage)}\";\"{options.num_whales}\";"
-    failed_data_requests = f"\"{failed_data_requests_percentage:.2f}\";"
-    underliners_threshold = f"\"{underline_stake / total_staked * 100:.2f}\";"
-    underliners_percentile = f"\"{num_underliners / num_stakers * 100:.2f}\";"
-    whales_eligibility = f"\"{whales_data_requests_solved / options.epochs * 100:.2f}\";"
-    try:
-      with open(csv_filename, "a", encoding="utf-8") as csv_file:
-        row = modus_ponens + input_params + failed_data_requests + underliners_threshold + underliners_percentile + whales_eligibility
-        csv_file.write(row + '\n')
-    except Exception as ex:
-      return
+    results = {
+        "total_staked": total_staked,
+        "whales_staked": whales_staked,
+        "failed_data_requests": failed_data_requests,
+        "failed_data_requests_percentage": f"{failed_data_requests / total_data_requests * 100:.2f}%",
+        "total_data_requests": total_data_requests,
+        "whales_data_requests_solved": whales_data_requests_solved,
+        "whales_relative_stake": f"{whales_staked / total_staked * 100:.2f}",
+        "whales_eligibility": f"{whales_data_requests_solved / total_data_requests / options.num_whales * 100:.2f}",
+        "potential_whale_manipulation_majority": potential_whale_manipulation_majority,
+        "potential_whale_manipulation_majority_percentage": f"{potential_whale_manipulation_majority / total_data_requests * 100:.2f}%",
+        "potential_whale_manipulation_super_majority": potential_whale_manipulation_super_majority,
+        "potential_whale_manipulation_super_majority_percentage": f"{potential_whale_manipulation_super_majority / total_data_requests * 100:.2f}%",
+        "underline_stake": underline_stake,
+        "underline_stake_percentage": f"{underline_stake / total_staked * 100:.2f}%",
+        "num_underliners": num_underliners,
+        "underliners_percentage": f"{num_underliners / num_stakers * 100:.2f}%",
+    }
+    save_simulation_results(short_timestamp, options, results)
+
+def save_simulation_results(index, options, results):
+    key_str, value_str = "", ""
+    for key, value in vars(options).items():
+        key_str += f"{key};"
+        value_str += f"{value};"
+
+    for key, value in results.items():
+        key_str += f"{key};"
+        value_str += f"{value};"
+
+    key_str = key_str[:-1]
+    value_str = value_str[:-1]
+
+    csv_file = "simulation_results.csv"
+    if not os.path.exists(csv_file):
+        with open("simulation_results.csv", "a+", encoding="utf-8") as csv_file:
+            csv_file.write(key_str + "\n")
+    with open("simulation_results.csv", "a+", encoding="utf-8") as csv_file:
+        csv_file.write(value_str + "\n")
 
 if __name__ == "__main__":
     main()
