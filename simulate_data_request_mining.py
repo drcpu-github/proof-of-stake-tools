@@ -88,13 +88,9 @@ def build_stakers(logger, options, timestamp):
 
     return stakers
 
-def simulate_eligibility_vrf_stake_linear(logger, epoch, data_request, stakers, coin_age, options, replication):
+def simulate_eligibility_vrf_stake_linear(logger, epoch, data_request, witnesses, stakers, coin_age, options, replication):
     logger.info(f"Simulating epoch {epoch + 1}, data request {data_request} (replication: {replication})")
     # eligibility: vrf < (2 ** 256) * own_power / global_power * rf
-
-    # Create local copies with shorter variable names
-    witnesses = options.data_requests_witnesses
-    witnesses_selector = options.witnesses_selector
 
     witness_replication = witnesses * (2 ** replication)
 
@@ -118,24 +114,20 @@ def simulate_eligibility_vrf_stake_linear(logger, epoch, data_request, stakers, 
             solvers.append((staker, own_power, vrf))
 
     if len(solvers) < witnesses:
-        logger.warning(f"Not enough witnesses ({len(solvers)} < {witnesses}) found for data request {data_request}")
+        logger.info(f"Not enough witnesses ({len(solvers)} < {witnesses}) found for data request {data_request}")
         return []
     else:
         logger.info(f"Found {len(solvers)} witnesses for data request {data_request}")
-        if witnesses_selector == "lowest-vrf":
+        if options.witnesses_selector == "lowest-vrf":
             solvers = sorted(solvers, key=lambda l: l[2])[:witnesses]
-        elif witnesses_selector == "highest-power":
+        elif options.witnesses_selector == "highest-power":
             solvers = sorted(solvers, key=lambda l: l[1], reverse=True)[:witnesses]
         logger.info(f"Stakers {solvers} are selected to solve a data request")
         return [s[0] for s in solvers]
 
-def simulate_eligibility_vrf_stake_adaptative(logger, epoch, data_request, stakers, coin_age, options, replication):
+def simulate_eligibility_vrf_stake_adaptive(logger, epoch, data_request, witnesses, stakers, coin_age, options, replication):
     logger.info(f"Simulating epoch {epoch + 1}, data request {data_request} (replication: {replication})")
     # eligibility: vrf < (2 ** 256) * own_power / global_power * rf
-
-    # Create local copies with shorter variable names
-    witnesses = options.data_requests_witnesses
-    witnesses_selector = options.witnesses_selector
 
     witness_replication = witnesses * (2 ** replication)
 
@@ -151,7 +143,7 @@ def simulate_eligibility_vrf_stake_adaptative(logger, epoch, data_request, stake
     for staker, stake in stakers.items():
         # Calculate power of the staker
         own_power = min(stake * coin_age[staker], 147_573_952_589_676_416)
-        if options.witnesses_selector == "lowest-vrf":
+        if options.options.witnesses_selector == "lowest-vrf":
             eligibility = own_power / global_power * replication if own_power >= threshold_power else 0
         else:
             eligibility = own_power / global_power if own_power >= threshold_power else 0
@@ -166,9 +158,9 @@ def simulate_eligibility_vrf_stake_adaptative(logger, epoch, data_request, stake
         return []
     else:
         logger.info(f"Found {len(solvers)} witnesses for data request {data_request}")
-        if witnesses_selector == "lowest-vrf":
+        if options.witnesses_selector == "lowest-vrf":
             solvers = sorted(solvers, key=lambda l: l[2])[:witnesses]
-        elif witnesses_selector == "highest-power":
+        elif options.witnesses_selector == "highest-power":
             solvers = sorted(solvers, key=lambda l: l[1], reverse=True)[:witnesses]
         logger.info(f"Stakers {solvers} are selected to solve a data request")
         return [s[0] for s in solvers]
@@ -178,7 +170,7 @@ def update_coin_age_reset(num_stakers, coin_age, solvers, options):
         if staker not in solvers:
             coin_age[staker] = coin_age[staker] + 1
         else:
-            coin_age[staker] = 1
+            coin_age[staker] = options.reset_coin_age
     return coin_age
 
 def update_coin_age_collateral(stakers, coin_age, solvers, options):
@@ -250,11 +242,12 @@ def main():
     parser.add_option("--epochs", type="int", default=100000, dest="epochs")
     parser.add_option("--data-requests-per-epoch", type="int", default=3, dest="data_requests_per_epoch")
     parser.add_option("--data-requests-distribution", type="string", default="uniform", dest="data_requests_distribution")
-    parser.add_option("--data-requests-witnesses", type="int", default=10, dest="data_requests_witnesses")
+    parser.add_option("--data-requests-witnesses", type="string", default="10", dest="data_requests_witnesses")
     parser.add_option("--data-requests-collateral", type="int", default=10, dest="data_requests_collateral")
     parser.add_option("--witnesses-selector", type="string", default="highest-power", dest="witnesses_selector")
     parser.add_option("--coin-ageing", type="string", default="reset", dest="coin_ageing")
-    parser.add_option("--eligibility", type="string", default="vrf-stake-adaptative", dest="eligibility")
+    parser.add_option("--reset-coin-age", type="int", default=1, dest="reset_coin_age")
+    parser.add_option("--eligibility", type="string", default="vrf-stake-adaptive", dest="eligibility")
     parser.add_option("--logging", type="string", default="info", dest="logging")
     parser.add_option("--seed-randomness", action="store_true", dest="seed_randomness")
     options, args = parser.parse_args()
@@ -264,11 +257,11 @@ def main():
     if not os.path.exists("logs"):
         os.mkdir("logs")
 
-    allowed_eligibility_strategies = ("vrf-stake-adaptative", "vrf-stake-linear")
+    allowed_eligibility_strategies = ("vrf-stake-adaptive", "vrf-stake-linear")
     if options.eligibility not in allowed_eligibility_strategies:
         print(f"Unknown eligibility strategy: {', '.join(allowed_eligibility_strategies)}")
         sys.exit(1)
-    allowed_data_requests_distributions = ("uniform", "random")
+    allowed_data_requests_distributions = ("uniform", "random", "full")
     if options.data_requests_distribution not in allowed_data_requests_distributions:
         print(f"Unknown data requests distribution: {', '.join(allowed_data_requests_distributions)}")
         sys.exit(1)
@@ -281,15 +274,23 @@ def main():
         print(f"Unknown coin ageing strategy: {', '.join(allowed_coin_ageing)}")
         sys.exit(1)
 
-    if options.data_requests_witnesses > (options.num_commons + options.num_whales) / 2:
-        print(f"Amount of data request witnesses ({options.data_requests_witnesses}) cannot exceed half of the total stakers ({options.num_commons + options.num_whales})")
+    try:
+        data_requests_witnesses = [int(options.data_requests_witnesses)] * 100
+        max_witnesses = data_requests_witnesses[0]
+    except ValueError:
+        # format: witnesses:frequency-witnesses:frequency-...-witnesses:frequency
+        data_requests_witnesses = [int(witnesses.split(":")[0]) for witnesses in options.data_requests_witnesses.split("-") for i in range(int(witnesses.split(":")[1]))]
+        max_witnesses = max(data_requests_witnesses)
+        assert len(data_requests_witnesses) == 100, "Sum of frequencies for witnesses needs to be equal to 100"
+
+    if max_witnesses > (options.num_commons + options.num_whales) / 4:
+        print(f"Amount of data request witnesses ({max_witnesses}) cannot exceed one fourth of the total stakers ({options.num_commons + options.num_whales})")
         sys.exit(1)
 
     if options.seed_randomness:
         random.seed(1337)
 
     timestamp = datetime.datetime.now().strftime("%Y%m%d%H%M%S")
-    short_timestamp = datetime.datetime.now().strftime("%H%M%S")
 
     logger = configure_logger("solving", timestamp, options.logging)
 
@@ -329,31 +330,59 @@ def main():
     logger.info(f"Initial coin age: {coin_age}")
 
     data_requests_solved_at_attempt = {}
-    solved_requests, data_requests_this_epoch, data_requests_per_epoch = {}, {}, {}
+    unique_solvers_in_epoch, solved_requests, data_requests_this_epoch, data_requests_per_epoch = {}, {}, {}, {}
     failed_data_requests, data_requests_created = 0, 0
     potential_whale_manipulation_majority, potential_whale_manipulation_super_majority = 0, 0
     for epoch in tqdm.tqdm(range(options.epochs)):
         # Generate a number of data requests
-        if options.data_requests_distribution == "uniform":
-            num_data_requests = options.data_requests_per_epoch
+        if options.data_requests_distribution in ("uniform", "random"):
+            # Uniform and equal to data_requests_per_epoch
+            if options.data_requests_distribution == "uniform":
+                num_data_requests = options.data_requests_per_epoch
+            # Random within a range of 0 to data_requests_per_epoch
+            elif options.data_requests_distribution == "random":
+                num_data_requests = random.randint(0, options.data_requests_per_epoch)
+            data_requests_this_epoch[1] = [
+                [
+                    data_requests_created + d + 1,
+                    data_requests_witnesses[random.randint(0, 99)]
+                ] for d in range(num_data_requests)
+            ]
+        # Fill all blocks with data requests up to 125 witnesses
         else:
-            num_data_requests = random.randint(0, options.data_requests_per_epoch)
+            counter = 0
+            data_requests_this_epoch[1] = []
+            while True:
+                data_requests_this_epoch[1].append([
+                    data_requests_created + counter + 1,
+                    data_requests_witnesses[random.randint(0, 99)],
+                ])
+                # If the amount of witnesses selected is bigger than or equal to 125, break out of the loop
+                witnesses_in_block = sum(witnesses for _, witnesses in data_requests_this_epoch[1])
+                if witnesses_in_block >= 125:
+                    if witnesses_in_block > 125:
+                        data_requests_this_epoch[1] = data_requests_this_epoch[1][:-1]
+                    break
+                counter += 1
+            num_data_requests = len(data_requests_this_epoch[1])
         if num_data_requests not in data_requests_per_epoch:
             data_requests_per_epoch[num_data_requests] = 0
         data_requests_per_epoch[num_data_requests] += 1
 
+        assert sum(witnesses for _, witnesses in data_requests_this_epoch[1]) <= 125
+
         # Simulate the data requests
         solvers = []
-        data_requests_this_epoch[1] = [data_requests_created + d + 1 for d in range(num_data_requests)]
         data_requests_left = {k: list(v) for k, v in data_requests_this_epoch.items()}
         for attempt, data_requests in sorted(data_requests_this_epoch.items()):
-            for dr in data_requests:
-                if options.eligibility == "vrf-stake-adaptative":
-                    dr_solvers = simulate_eligibility_vrf_stake_adaptative(logger, epoch, dr, stakers, coin_age, options, attempt)
+            for dr, witnesses in data_requests:
+                if options.eligibility == "vrf-stake-adaptive":
+                    dr_solvers = simulate_eligibility_vrf_stake_adaptive(logger, epoch, dr, witnesses, stakers, coin_age, options, attempt)
                 elif options.eligibility == "vrf-stake-linear":
-                    dr_solvers = simulate_eligibility_vrf_stake_linear(logger, epoch, dr, stakers, coin_age, options, attempt)
+                    dr_solvers = simulate_eligibility_vrf_stake_linear(logger, epoch, dr, witnesses, stakers, coin_age, options, attempt)
 
-                data_requests_left[attempt].remove(dr)
+                data_requests_left[attempt].remove([dr, witnesses])
+
                 if dr_solvers == []:
                     if attempt + 1 > 4:
                         logger.warning(f"Failed to resolve data request {dr}")
@@ -361,7 +390,7 @@ def main():
                         continue
                     if attempt + 1 not in data_requests_left:
                         data_requests_left[attempt + 1] = []
-                    data_requests_left[attempt + 1].append(dr)
+                    data_requests_left[attempt + 1].append([dr, witnesses])
                 else:
                     if attempt not in data_requests_solved_at_attempt:
                         data_requests_solved_at_attempt[attempt] = 0
@@ -372,13 +401,19 @@ def main():
                     for solver in dr_solvers:
                         if solver >= options.num_commons:
                             whale_solvers += 1
-                    if whale_solvers > options.data_requests_witnesses / 2:
+                    if whale_solvers > witnesses / 2:
                         potential_whale_manipulation_majority += 1
-                    if whale_solvers >= 7 * options.data_requests_witnesses / 10:
+                    if whale_solvers >= 7 * witnesses / 10:
                         potential_whale_manipulation_super_majority += 1
 
             if attempt == 1:
                 data_requests_created += num_data_requests
+
+        num_unique_solvers = len(set(solvers))
+        if num_unique_solvers not in unique_solvers_in_epoch:
+            unique_solvers_in_epoch[num_unique_solvers] = 0
+        unique_solvers_in_epoch[num_unique_solvers] += 1
+        logger.info(f"Number of unique data request solvers was {num_unique_solvers} in epoch {epoch}")
 
         assert len(data_requests_left[1]) == 0, ', '.join(f'{key}: {value}' for key, value in sorted(data_requests_left.items()))
         data_requests_this_epoch = {k: v for k,v in data_requests_left.items()}
@@ -400,6 +435,18 @@ def main():
             coin_age = update_coin_age_collateral(stakers, coin_age, Counter(solvers), options)
         logger.info(f"Updated coin age: {coin_age}")
 
+        possible_witnesses = sum(1 for coin_age in coin_age.values() if coin_age != 0)
+        if options.reset_coin_age == 0 and possible_witnesses < min(data_requests_witnesses):
+            logger.warning("Too many stakers' coin age was reset to zero")
+
+    logger.info("Frequency of data requests included per epoch:")
+    for data_requests, frequency in sorted(data_requests_per_epoch.items()):
+        logger.info(f"{data_requests}: {frequency} ({frequency / sum(data_requests_per_epoch.values()) * 100:.4f}%)")
+
+    logger.info("Frequency of unique data request solvers per epoch:")
+    for unique_solvers, frequency in sorted(unique_solvers_in_epoch.items()):
+        logger.info(f"{unique_solvers}: {frequency} ({frequency / sum(unique_solvers_in_epoch.values()) * 100:.4f}%)")
+
     total_data_requests = sum(data_requests * amount for data_requests, amount in data_requests_per_epoch.items())
 
     print_solver_stats(logger, stakers, solved_requests, total_data_requests)
@@ -411,16 +458,20 @@ def main():
     if options.num_whales > 0:
         whales_str = f", whales = {options.num_whales} ({int(whales_staked / 1E6)}M)"
     plot_title = f"commons = {options.num_commons} ({int(options.commons_staked / 1E6)}M){whales_str}, witnesses selector = {options.witnesses_selector}, coin ageing = {options.coin_ageing}"
-    plot_solving_rate(stakers, solved_requests, total_data_requests, options, plot_title, short_timestamp)
+    if options.coin_ageing == "reset":
+        plot_title += f" ({options.reset_coin_age})"
+    plot_solving_rate(stakers, solved_requests, total_data_requests, options, plot_title, timestamp)
 
     data_requests_solved_at_attempt[-1] = failed_data_requests
-    plot_data_requests_solved_at(data_requests_solved_at_attempt, options, plot_title, short_timestamp)
+    plot_data_requests_solved_at(data_requests_solved_at_attempt, options, plot_title, timestamp)
 
     # Print and save summary
     print("\nSimulation parameters:")
     print("> Number of epochs:                    ", options.epochs)
     print("> Mining eligiblity:                   ", options.eligibility)
     print("> Coin ageing:                         ", options.coin_ageing)
+    if options.coin_ageing == "reset":
+        print("> Coin ageing value:                   ", options.reset_coin_age)
     print("> Commons distribution:                ", options.distribution)
     print("> Data request per epoch:              ", options.data_requests_per_epoch)
     print("> Data request witnesses:              ", options.data_requests_witnesses)
@@ -483,7 +534,7 @@ def main():
         "num_underliners": num_underliners,
         "underliners_percentage": f"{num_underliners / num_stakers * 100:.2f}%",
     }
-    save_simulation_results(short_timestamp, options, results)
+    save_simulation_results(timestamp, options, results)
 
 def save_simulation_results(index, options, results):
     key_str, value_str = "", ""
